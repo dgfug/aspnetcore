@@ -101,6 +101,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Quic.Tests
 
             Logger.LogInformation("Server disposing stream.");
             await quicStreamContext.DisposeAsync().DefaultTimeout();
+            quicStreamContext.Dispose();
 
             Logger.LogInformation("Client reading until end of stream.");
             var data = await clientStream.ReadUntilEndAsync().DefaultTimeout();

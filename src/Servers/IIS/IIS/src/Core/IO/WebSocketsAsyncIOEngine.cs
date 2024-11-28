@@ -1,146 +1,132 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using System.Buffers;
-using System.Threading;
-using System.Threading.Tasks;
+using System.Diagnostics;
 
-namespace Microsoft.AspNetCore.Server.IIS.Core.IO
+namespace Microsoft.AspNetCore.Server.IIS.Core.IO;
+
+internal sealed partial class WebSocketsAsyncIOEngine : IAsyncIOEngine
 {
-    internal partial class WebSocketsAsyncIOEngine: IAsyncIOEngine
+    private readonly IISHttpContext _context;
+
+    private readonly NativeSafeHandle _handler;
+
+    private bool _isInitialized;
+
+    private AsyncInitializeOperation? _initializationFlush;
+
+    private WebSocketWriteOperation? _webSocketWriteOperation;
+
+    private WebSocketReadOperation? _webSocketReadOperation;
+
+    public WebSocketsAsyncIOEngine(IISHttpContext context, NativeSafeHandle handler)
     {
-        private readonly IISHttpContext _context;
+        _context = context;
+        _handler = handler;
+    }
 
-        private readonly NativeSafeHandle _handler;
-
-        private bool _isInitialized;
-
-        private AsyncInitializeOperation? _initializationFlush;
-
-        private WebSocketWriteOperation? _cachedWebSocketWriteOperation;
-
-        private WebSocketReadOperation? _cachedWebSocketReadOperation;
-
-        private AsyncInitializeOperation? _cachedAsyncInitializeOperation;
-
-        public WebSocketsAsyncIOEngine(IISHttpContext context, NativeSafeHandle handler)
+    public ValueTask<int> ReadAsync(Memory<byte> memory)
+    {
+        lock (_context._contextLock)
         {
-            _context = context;
-            _handler = handler;
+            ThrowIfNotInitialized();
+
+            var read = _webSocketReadOperation ??= new WebSocketReadOperation(this);
+
+            Debug.Assert(!read.InUse());
+
+            read.Initialize(_handler, memory);
+            read.Invoke();
+            return new ValueTask<int>(read, 0);
         }
+    }
 
-        public ValueTask<int> ReadAsync(Memory<byte> memory)
+    public ValueTask<int> WriteAsync(ReadOnlySequence<byte> data)
+    {
+        lock (_context._contextLock)
         {
-            lock (_context._contextLock)
-            {
-                ThrowIfNotInitialized();
+            ThrowIfNotInitialized();
 
-                var read = GetReadOperation();
-                read.Initialize(_handler, memory);
-                read.Invoke();
-                return new ValueTask<int>(read, 0);
-            }
+            var write = _webSocketWriteOperation ??= new WebSocketWriteOperation(this);
+
+            Debug.Assert(!write.InUse());
+
+            write.Initialize(_handler, data);
+            write.Invoke();
+            return new ValueTask<int>(write, 0);
         }
+    }
 
-        public ValueTask<int> WriteAsync(ReadOnlySequence<byte> data)
+    public ValueTask FlushAsync(bool moreData)
+    {
+        lock (_context._contextLock)
         {
-            lock (_context._contextLock)
+            if (_isInitialized)
             {
-                ThrowIfNotInitialized();
-
-                var write = GetWriteOperation();
-                write.Initialize(_handler, data);
-                write.Invoke();
-                return new ValueTask<int>(write, 0);
-            }
-        }
-
-        public ValueTask FlushAsync(bool moreData)
-        {
-            lock (_context._contextLock)
-            {
-                if (_isInitialized)
-                {
-                    return new ValueTask(Task.CompletedTask);
-                }
-
-                NativeMethods.HttpEnableWebsockets(_handler);
-
-                var init = GetInitializeOperation();
-                init.Initialize(_handler);
-
-                var continuation = init.Invoke();
-
-                if (continuation != null)
-                {
-                    _isInitialized = true;
-                }
-                else
-                {
-                    _initializationFlush = init;
-                }
-
-                return new ValueTask(init, 0);
-            }
-        }
-
-        public void NotifyCompletion(int hr, int bytes)
-        {
-            _isInitialized = true;
-
-            var init = _initializationFlush;
-            if (init == null)
-            {
-                throw new InvalidOperationException("Unexpected completion for WebSocket operation");
+                return new ValueTask(Task.CompletedTask);
             }
 
-            var continuation = init.Complete(hr, bytes);
+            NativeMethods.HttpEnableWebsockets(_handler);
 
-            _initializationFlush = null;
+            var init = new AsyncInitializeOperation(this);
+            init.Initialize(_handler);
 
-            continuation.Invoke();
+            var continuation = init.Invoke();
+
+            if (continuation != null)
+            {
+                _isInitialized = true;
+            }
+            else
+            {
+                _initializationFlush = init;
+            }
+
+            return new ValueTask(init, 0);
+        }
+    }
+
+    public void NotifyCompletion(int hr, int bytes)
+    {
+        _isInitialized = true;
+
+        var init = _initializationFlush;
+        if (init == null)
+        {
+            throw new InvalidOperationException("Unexpected completion for WebSocket operation");
         }
 
-        private void ThrowIfNotInitialized()
+        var continuation = init.Complete(hr, bytes);
+
+        _initializationFlush = null;
+
+        continuation.Invoke();
+    }
+
+    private void ThrowIfNotInitialized()
+    {
+        if (!_isInitialized)
         {
-            if (!_isInitialized)
+            throw new InvalidOperationException("Socket IO not initialized yet");
+        }
+    }
+
+    public void Complete()
+    {
+        lock (_context._contextLock)
+        {
+            // Should only call CancelIO if the client hasn't disconnected
+            if (!_context.ClientDisconnected)
             {
-                throw new InvalidOperationException("Socket IO not initialized yet");
+                NativeMethods.HttpTryCancelIO(_handler);
             }
         }
+    }
 
-        public void Complete()
-        {
-            lock (_context._contextLock)
-            {
-                // Should only call CancelIO if the client hasn't disconnected
-                if (!_context.ClientDisconnected)
-                {
-                    NativeMethods.HttpTryCancelIO(_handler);
-                }
-            }
-        }
-
-        private WebSocketReadOperation GetReadOperation() =>
-            Interlocked.Exchange(ref _cachedWebSocketReadOperation, null) ??
-            new WebSocketReadOperation(this);
-
-        private WebSocketWriteOperation GetWriteOperation() =>
-            Interlocked.Exchange(ref _cachedWebSocketWriteOperation, null) ??
-            new WebSocketWriteOperation(this);
-
-        private AsyncInitializeOperation GetInitializeOperation() =>
-            Interlocked.Exchange(ref _cachedAsyncInitializeOperation, null) ??
-            new AsyncInitializeOperation(this);
-
-        private void ReturnOperation(AsyncInitializeOperation operation) =>
-            Volatile.Write(ref _cachedAsyncInitializeOperation, operation);
-
-        private void ReturnOperation(WebSocketWriteOperation operation) =>
-            Volatile.Write(ref _cachedWebSocketWriteOperation, operation);
-
-        private void ReturnOperation(WebSocketReadOperation operation) =>
-            Volatile.Write(ref _cachedWebSocketReadOperation, operation);
+    public void Dispose()
+    {
+        _webSocketWriteOperation?.Dispose();
+        _webSocketReadOperation?.Dispose();
     }
 }

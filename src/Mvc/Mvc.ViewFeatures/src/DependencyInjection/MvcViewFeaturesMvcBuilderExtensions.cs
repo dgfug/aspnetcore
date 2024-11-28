@@ -1,143 +1,118 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using System.Linq;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ViewComponents;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
-namespace Microsoft.Extensions.DependencyInjection
+namespace Microsoft.Extensions.DependencyInjection;
+
+/// <summary>
+/// Extensions methods for configuring MVC via an <see cref="IMvcBuilder"/>.
+/// </summary>
+public static class MvcViewFeaturesMvcBuilderExtensions
 {
     /// <summary>
-    /// Extensions methods for configuring MVC via an <see cref="IMvcBuilder"/>.
+    /// Adds configuration of <see cref="MvcViewOptions"/> for the application.
     /// </summary>
-    public static class MvcViewFeaturesMvcBuilderExtensions
+    /// <param name="builder">The <see cref="IMvcBuilder"/>.</param>
+    /// <param name="setupAction">
+    /// An <see cref="Action{MvcViewOptions}"/> to configure the provided <see cref="MvcViewOptions"/>.
+    /// </param>
+    /// <returns>The <see cref="IMvcBuilder"/>.</returns>
+    public static IMvcBuilder AddViewOptions(
+        this IMvcBuilder builder,
+        Action<MvcViewOptions> setupAction)
     {
-        /// <summary>
-        /// Adds configuration of <see cref="MvcViewOptions"/> for the application.
-        /// </summary>
-        /// <param name="builder">The <see cref="IMvcBuilder"/>.</param>
-        /// <param name="setupAction">
-        /// An <see cref="Action{MvcViewOptions}"/> to configure the provided <see cref="MvcViewOptions"/>.
-        /// </param>
-        /// <returns>The <see cref="IMvcBuilder"/>.</returns>
-        public static IMvcBuilder AddViewOptions(
-            this IMvcBuilder builder,
-            Action<MvcViewOptions> setupAction)
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(setupAction);
+
+        builder.Services.Configure(setupAction);
+        return builder;
+    }
+
+    /// <summary>
+    /// Registers discovered view components as services in the <see cref="IServiceCollection"/>.
+    /// </summary>
+    /// <param name="builder">The <see cref="IMvcBuilder"/>.</param>
+    /// <returns>The <see cref="IMvcBuilder"/>.</returns>
+    public static IMvcBuilder AddViewComponentsAsServices(this IMvcBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        var feature = new ViewComponentFeature();
+        builder.PartManager.PopulateFeature(feature);
+
+        foreach (var viewComponent in feature.ViewComponents.Select(vc => vc.AsType()))
         {
-            if (builder == null)
-            {
-                throw new ArgumentNullException(nameof(builder));
-            }
-
-            if (setupAction == null)
-            {
-                throw new ArgumentNullException(nameof(setupAction));
-            }
-
-            builder.Services.Configure(setupAction);
-            return builder;
+            builder.Services.TryAddTransient(viewComponent, viewComponent);
         }
 
-        /// <summary>
-        /// Registers discovered view components as services in the <see cref="IServiceCollection"/>.
-        /// </summary>
-        /// <param name="builder">The <see cref="IMvcBuilder"/>.</param>
-        /// <returns>The <see cref="IMvcBuilder"/>.</returns>
-        public static IMvcBuilder AddViewComponentsAsServices(this IMvcBuilder builder)
-        {
-            if (builder == null)
-            {
-                throw new ArgumentNullException(nameof(builder));
-            }
+        builder.Services.Replace(ServiceDescriptor.Singleton<IViewComponentActivator, ServiceBasedViewComponentActivator>());
 
-            var feature = new ViewComponentFeature();
-            builder.PartManager.PopulateFeature(feature);
+        return builder;
+    }
 
-            foreach (var viewComponent in feature.ViewComponents.Select(vc => vc.AsType()))
-            {
-                builder.Services.TryAddTransient(viewComponent, viewComponent);
-            }
+    /// <summary>
+    /// Registers <see cref="SessionStateTempDataProvider"/> as the default <see cref="ITempDataProvider"/>
+    /// in the <see cref="IServiceCollection"/>.
+    /// </summary>
+    /// <param name="builder">The <see cref="IMvcBuilder"/>.</param>
+    /// <returns>The <see cref="IMvcBuilder"/>.</returns>
+    public static IMvcBuilder AddSessionStateTempDataProvider(this IMvcBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
 
-            builder.Services.Replace(ServiceDescriptor.Singleton<IViewComponentActivator, ServiceBasedViewComponentActivator>());
+        // Ensure the TempData basics are registered.
+        MvcViewFeaturesMvcCoreBuilderExtensions.AddViewServices(builder.Services);
 
-            return builder;
-        }
+        var descriptor = ServiceDescriptor.Singleton(typeof(ITempDataProvider), typeof(SessionStateTempDataProvider));
+        builder.Services.Replace(descriptor);
 
-        /// <summary>
-        /// Registers <see cref="SessionStateTempDataProvider"/> as the default <see cref="ITempDataProvider"/>
-        /// in the <see cref="IServiceCollection"/>.
-        /// </summary>
-        /// <param name="builder">The <see cref="IMvcBuilder"/>.</param>
-        /// <returns>The <see cref="IMvcBuilder"/>.</returns>
-        public static IMvcBuilder AddSessionStateTempDataProvider(this IMvcBuilder builder)
-        {
-            if (builder == null)
-            {
-                throw new ArgumentNullException(nameof(builder));
-            }
+        return builder;
+    }
 
-            // Ensure the TempData basics are registered.
-            MvcViewFeaturesMvcCoreBuilderExtensions.AddViewServices(builder.Services);
+    /// <summary>
+    /// Registers <see cref="CookieTempDataProvider"/> as the default <see cref="ITempDataProvider"/> in the
+    /// <see cref="IServiceCollection"/>.
+    /// </summary>
+    /// <param name="builder">The <see cref="IMvcBuilder"/>.</param>
+    /// <returns>The <see cref="IMvcBuilder"/>.</returns>
+    public static IMvcBuilder AddCookieTempDataProvider(this IMvcBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
 
-            var descriptor = ServiceDescriptor.Singleton(typeof(ITempDataProvider), typeof(SessionStateTempDataProvider));
-            builder.Services.Replace(descriptor);
+        // Ensure the TempData basics are registered.
+        MvcViewFeaturesMvcCoreBuilderExtensions.AddViewServices(builder.Services);
 
-            return builder;
-        }
+        var descriptor = ServiceDescriptor.Singleton(typeof(ITempDataProvider), typeof(CookieTempDataProvider));
+        builder.Services.Replace(descriptor);
 
-        /// <summary>
-        /// Registers <see cref="CookieTempDataProvider"/> as the default <see cref="ITempDataProvider"/> in the
-        /// <see cref="IServiceCollection"/>.
-        /// </summary>
-        /// <param name="builder">The <see cref="IMvcBuilder"/>.</param>
-        /// <returns>The <see cref="IMvcBuilder"/>.</returns>
-        public static IMvcBuilder AddCookieTempDataProvider(this IMvcBuilder builder)
-        {
-            if (builder == null)
-            {
-                throw new ArgumentNullException(nameof(builder));
-            }
+        return builder;
+    }
 
-            // Ensure the TempData basics are registered.
-            MvcViewFeaturesMvcCoreBuilderExtensions.AddViewServices(builder.Services);
+    /// <summary>
+    /// Registers <see cref="CookieTempDataProvider"/> as the default <see cref="ITempDataProvider"/> in the
+    /// <see cref="IServiceCollection"/>.
+    /// </summary>
+    /// <param name="builder">The <see cref="IMvcBuilder"/>.</param>
+    /// <param name="setupAction">
+    /// An <see cref="Action{CookieTempDataProviderOptions}"/> to configure the provided
+    /// <see cref="CookieTempDataProviderOptions"/>.
+    /// </param>
+    /// <returns>The <see cref="IMvcBuilder"/>.</returns>
+    public static IMvcBuilder AddCookieTempDataProvider(
+        this IMvcBuilder builder,
+        Action<CookieTempDataProviderOptions> setupAction)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        ArgumentNullException.ThrowIfNull(setupAction);
 
-            var descriptor = ServiceDescriptor.Singleton(typeof(ITempDataProvider), typeof(CookieTempDataProvider));
-            builder.Services.Replace(descriptor);
+        AddCookieTempDataProvider(builder);
+        builder.Services.Configure(setupAction);
 
-            return builder;
-        }
-
-        /// <summary>
-        /// Registers <see cref="CookieTempDataProvider"/> as the default <see cref="ITempDataProvider"/> in the
-        /// <see cref="IServiceCollection"/>.
-        /// </summary>
-        /// <param name="builder">The <see cref="IMvcBuilder"/>.</param>
-        /// <param name="setupAction">
-        /// An <see cref="Action{CookieTempDataProviderOptions}"/> to configure the provided
-        /// <see cref="CookieTempDataProviderOptions"/>.
-        /// </param>
-        /// <returns>The <see cref="IMvcBuilder"/>.</returns>
-        public static IMvcBuilder AddCookieTempDataProvider(
-            this IMvcBuilder builder,
-            Action<CookieTempDataProviderOptions> setupAction)
-        {
-            if (builder == null)
-            {
-                throw new ArgumentNullException(nameof(builder));
-            }
-
-            if (setupAction == null)
-            {
-                throw new ArgumentNullException(nameof(setupAction));
-            }
-
-            AddCookieTempDataProvider(builder);
-            builder.Services.Configure(setupAction);
-
-            return builder;
-        }
+        return builder;
     }
 }

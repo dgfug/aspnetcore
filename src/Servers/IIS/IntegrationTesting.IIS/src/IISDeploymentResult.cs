@@ -3,51 +3,50 @@
 
 using System.Diagnostics;
 using System.Net.Http;
-using System.Threading;
 using Microsoft.Extensions.Logging;
 
-namespace Microsoft.AspNetCore.Server.IntegrationTesting.IIS
+namespace Microsoft.AspNetCore.Server.IntegrationTesting.IIS;
+
+public class IISDeploymentResult : DeploymentResult, IDisposable
 {
-    public class IISDeploymentResult : DeploymentResult
+    public ILogger Logger { get; set; }
+
+    public Process HostProcess { get; }
+
+    public string AppPoolName { get; }
+
+    public IISDeploymentResult(ILoggerFactory loggerFactory,
+        IISDeploymentParameters deploymentParameters,
+        string applicationBaseUri,
+        string contentRoot,
+        string appPoolName,
+        CancellationToken hostShutdownToken,
+        Process hostProcess)
+        : base(loggerFactory,
+              deploymentParameters,
+              applicationBaseUri,
+              contentRoot,
+              hostShutdownToken)
     {
-        public ILogger Logger { get; set; }
-        public Process HostProcess { get; }
-
-        public IISDeploymentResult(ILoggerFactory loggerFactory,
-            IISDeploymentParameters deploymentParameters,
-            string applicationBaseUri,
-            string contentRoot,
-            CancellationToken hostShutdownToken,
-            Process hostProcess)
-            : base(loggerFactory,
-                  deploymentParameters,
-                  applicationBaseUri,
-                  contentRoot,
-                  hostShutdownToken)
-        {
-            HostProcess = hostProcess;
-            Logger = loggerFactory.CreateLogger(deploymentParameters.SiteName);
-            HttpClient = CreateClient(new HttpClientHandler());
-        }
-
-        public HttpClient CreateClient(HttpMessageHandler messageHandler)
-        {
-            return new HttpClient(new LoggingHandler(messageHandler, Logger))
-            {
-                BaseAddress = base.HttpClient.BaseAddress
-            };
-        }
-
-        private HttpClient CreateRetryClient(HttpMessageHandler messageHandler)
-        {
-            var loggingHandler = new LoggingHandler(messageHandler, Logger);
-            var retryHandler = new RetryHandler(loggingHandler, Logger);
-            return new HttpClient(retryHandler)
-            {
-                BaseAddress = base.HttpClient.BaseAddress
-            };
-        }
-
-        public new HttpClient HttpClient { get; set; }
+        AppPoolName = appPoolName;
+        HostProcess = hostProcess;
+        Logger = loggerFactory.CreateLogger(deploymentParameters.SiteName);
+        HttpClient = CreateClient(new HttpClientHandler());
     }
+
+    public HttpClient CreateClient(HttpMessageHandler messageHandler)
+    {
+        return new HttpClient(new LoggingHandler(messageHandler, Logger))
+        {
+            BaseAddress = base.HttpClient.BaseAddress,
+            Timeout = TimeSpan.FromSeconds(200),
+        };
+    }
+
+    public void Dispose()
+    {
+        HttpClient.Dispose();
+    }
+
+    public new HttpClient HttpClient { get; set; }
 }

@@ -5,41 +5,64 @@ using System.Collections.Generic;
 using System.Diagnostics.Tracing;
 using System.Threading;
 using System.Threading.Channels;
+using Microsoft.Extensions.Logging;
 
-namespace Microsoft.AspNetCore.Internal
+namespace Microsoft.AspNetCore.Internal;
+
+internal sealed class TestCounterListener : EventListener
 {
-    internal class TestCounterListener : EventListener
+    private readonly Dictionary<string, Channel<double>> _counters = new Dictionary<string, Channel<double>>();
+    private readonly ILogger _logger;
+    private readonly string _eventSourceName;
+
+    /// <summary>
+    /// Creates a new TestCounterListener.
+    /// </summary>
+    /// <param name="counterNames">The names of ALL counters for the event source. You must name each counter, even if you do not intend to use it.</param>
+    public TestCounterListener(ILoggerFactory loggerFactory, string eventSourceName, string[] counterNames)
     {
-        private readonly Dictionary<string, Channel<double>> _counters = new Dictionary<string, Channel<double>>();
-
-        /// <summary>
-        /// Creates a new TestCounterListener.
-        /// </summary>
-        /// <param name="counterNames">The names of ALL counters for the event source. You must name each counter, even if you do not intend to use it.</param>
-        public TestCounterListener(string[] counterNames)
+        _logger = loggerFactory.CreateLogger<TestCounterListener>();
+        foreach (var item in counterNames)
         {
-            foreach (var item in counterNames)
-            {
-                _counters[item] = Channel.CreateUnbounded<double>();
-            }
+            _counters[item] = Channel.CreateUnbounded<double>();
         }
 
-        public IAsyncEnumerable<double> GetCounterValues(string counterName, CancellationToken cancellationToken = default)
-        {
-            return _counters[counterName].Reader.ReadAllAsync(cancellationToken);
-        }
+        _eventSourceName = eventSourceName;
+    }
 
-        protected override void OnEventWritten(EventWrittenEventArgs eventData)
+    public IAsyncEnumerable<double> GetCounterValues(string counterName, CancellationToken cancellationToken = default)
+    {
+        return _counters[counterName].Reader.ReadAllAsync(cancellationToken);
+    }
+
+    protected override void OnEventWritten(EventWrittenEventArgs eventData)
+    {
+        // Work around https://github.com/dotnet/runtime/issues/31927
+        if (eventData.EventSource.Name == _eventSourceName && eventData.EventName == "EventCounters")
         {
-            if (eventData.EventName == "EventCounters")
+            var payload = (IDictionary<string, object>)eventData.Payload[0];
+            var counter = (string)payload["Name"];
+            if (payload.TryGetValue("Increment", out var increment))
             {
-                var payload = (IDictionary<string, object>)eventData.Payload[0];
-                var counter = (string)payload["Name"];
-                payload.TryGetValue("Increment", out var increment);
-                payload.TryGetValue("Mean", out var mean);
-                var writer = _counters[counter].Writer;
-                writer.TryWrite((double)(increment ?? mean));
+                _logger.LogDebug("Counter {CounterName} on event source {EventSourceName} has increment value {Value}.", counter, eventData.EventSource.Name, increment);
             }
+            if (payload.TryGetValue("Mean", out var mean))
+            {
+                _logger.LogDebug("Counter {CounterName} on event source {EventSourceName} has mean value {Value}.", counter, eventData.EventSource.Name, mean);
+            }
+
+            var value = (double)(increment ?? mean);
+            var writer = _counters[counter].Writer;
+            writer.TryWrite(value);
+        }
+    }
+
+    public override void Dispose()
+    {
+        base.Dispose();
+        foreach (var item in _counters)
+        {
+            item.Value.Writer.TryComplete();
         }
     }
 }

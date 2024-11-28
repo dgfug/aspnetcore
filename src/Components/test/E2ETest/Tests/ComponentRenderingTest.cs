@@ -5,30 +5,31 @@ using BasicTestApp;
 using Microsoft.AspNetCore.Components.E2ETest.Infrastructure.ServerFixtures;
 using Microsoft.AspNetCore.E2ETesting;
 using OpenQA.Selenium;
-using Xunit;
 using Xunit.Abstractions;
 
-namespace Microsoft.AspNetCore.Components.E2ETest.Tests
+namespace Microsoft.AspNetCore.Components.E2ETest.Tests;
+
+public sealed class ComponentRenderingTest : ComponentRenderingTestBase
 {
-    public sealed class ComponentRenderingTest : ComponentRenderingTestBase
+    public ComponentRenderingTest(
+        BrowserFixture browserFixture,
+        ToggleExecutionModeServerFixture<Program> serverFixture,
+        ITestOutputHelper output)
+        : base(browserFixture, serverFixture, output)
     {
-        public ComponentRenderingTest(
-            BrowserFixture browserFixture,
-            ToggleExecutionModeServerFixture<Program> serverFixture,
-            ITestOutputHelper output)
-            : base(browserFixture, serverFixture, output)
-        {
-        }
+    }
 
-        [Fact]
-        public void CanDispatchAsyncWorkToSyncContext()
-        {
-            var appElement = Browser.MountTestComponent<DispatchingComponent>();
-            var result = appElement.FindElement(By.Id("result"));
+    [Fact]
+    public void CanDispatchAsyncWorkToSyncContext()
+    {
+        var appElement = Browser.MountTestComponent<DispatchingComponent>();
+        var result = appElement.FindElement(By.Id("result"));
 
-            appElement.FindElement(By.Id("run-async-with-dispatch")).Click();
+        appElement.FindElement(By.Id("run-async-with-dispatch")).Click();
 
-            Browser.Equal("First Second Third Fourth Fifth", () => result.Text);
-        }
+        // this test assumes RendererSynchronizationContext optimization, which makes it synchronous execution.
+        // with multi-threading runtime and WebAssemblyDispatcher `InvokeAsync` will be executed asynchronously ordering it differently.
+        // See https://github.com/dotnet/aspnetcore/pull/52724#issuecomment-1895566632
+        Browser.Equal("First Second Third Fourth Fifth", () => result.Text);
     }
 }

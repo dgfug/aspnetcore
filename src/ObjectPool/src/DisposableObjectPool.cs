@@ -4,89 +4,64 @@
 using System;
 using System.Threading;
 
-namespace Microsoft.Extensions.ObjectPool
+namespace Microsoft.Extensions.ObjectPool;
+
+internal sealed class DisposableObjectPool<T> : DefaultObjectPool<T>, IDisposable where T : class
 {
-    internal sealed class DisposableObjectPool<T> : DefaultObjectPool<T>, IDisposable where T : class
+    private volatile bool _isDisposed;
+
+    public DisposableObjectPool(IPooledObjectPolicy<T> policy)
+        : base(policy)
     {
-        private volatile bool _isDisposed;
+    }
 
-        public DisposableObjectPool(IPooledObjectPolicy<T> policy)
-            : base(policy)
+    public DisposableObjectPool(IPooledObjectPolicy<T> policy, int maximumRetained)
+        : base(policy, maximumRetained)
+    {
+    }
+
+    public override T Get()
+    {
+        if (_isDisposed)
         {
+            ThrowObjectDisposedException();
         }
 
-        public DisposableObjectPool(IPooledObjectPolicy<T> policy, int maximumRetained)
-            : base(policy, maximumRetained)
+        return base.Get();
+
+        void ThrowObjectDisposedException()
         {
+            throw new ObjectDisposedException(GetType().Name);
         }
+    }
 
-        public override T Get()
+    public override void Return(T obj)
+    {
+        // When the pool is disposed or the obj is not returned to the pool, dispose it
+        if (_isDisposed || !ReturnCore(obj))
         {
-            if (_isDisposed)
-            {
-                ThrowObjectDisposedException();
-            }
-
-            return base.Get();
-
-            void ThrowObjectDisposedException()
-            {
-                throw new ObjectDisposedException(GetType().Name);
-            }
+            DisposeItem(obj);
         }
+    }
 
-        public override void Return(T obj)
+    public void Dispose()
+    {
+        _isDisposed = true;
+
+        DisposeItem(_fastItem);
+        _fastItem = null;
+
+        while (_items.TryDequeue(out var item))
         {
-            // When the pool is disposed or the obj is not returned to the pool, dispose it
-            if (_isDisposed || !ReturnCore(obj))
-            {
-                DisposeItem(obj);
-            }
+            DisposeItem(item);
         }
+    }
 
-        private bool ReturnCore(T obj)
+    private static void DisposeItem(T? item)
+    {
+        if (item is IDisposable disposable)
         {
-            bool returnedTooPool = false;
-
-            if (_isDefaultPolicy || (_fastPolicy?.Return(obj) ?? _policy.Return(obj)))
-            {
-                if (_firstItem == null && Interlocked.CompareExchange(ref _firstItem, obj, null) == null)
-                {
-                    returnedTooPool = true;
-                }
-                else
-                {
-                    var items = _items;
-                    for (var i = 0; i < items.Length && !(returnedTooPool = Interlocked.CompareExchange(ref items[i].Element, obj, null) == null); i++)
-                    {
-                    }
-                }
-            }
-
-            return returnedTooPool;
-        }
-
-        public void Dispose()
-        {
-            _isDisposed = true;
-
-            DisposeItem(_firstItem);
-            _firstItem = null;
-
-            ObjectWrapper[] items = _items;
-            for (var i = 0; i < items.Length; i++)
-            {
-                DisposeItem(items[i].Element);
-                items[i].Element = null;
-            }
-        }
-
-        private static void DisposeItem(T? item)
-        {
-            if (item is IDisposable disposable)
-            {
-                disposable.Dispose();
-            }
+            disposable.Dispose();
         }
     }
 }

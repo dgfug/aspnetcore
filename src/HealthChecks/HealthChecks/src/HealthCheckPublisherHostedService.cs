@@ -2,247 +2,283 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Shared;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Internal;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace Microsoft.Extensions.Diagnostics.HealthChecks
+namespace Microsoft.Extensions.Diagnostics.HealthChecks;
+
+internal sealed partial class HealthCheckPublisherHostedService : IHostedService
 {
-    internal sealed partial class HealthCheckPublisherHostedService : IHostedService
+    private readonly HealthCheckService _healthCheckService;
+    private readonly IOptions<HealthCheckServiceOptions> _healthCheckServiceOptions;
+    private readonly IOptions<HealthCheckPublisherOptions> _healthCheckPublisherOptions;
+    private readonly ILogger _logger;
+    private readonly IHealthCheckPublisher[] _publishers;
+    private List<Timer>? _timers;
+
+    private readonly CancellationTokenSource _stopping;
+    private CancellationTokenSource? _runTokenSource;
+
+    public HealthCheckPublisherHostedService(
+        HealthCheckService healthCheckService,
+        IOptions<HealthCheckServiceOptions> healthCheckServiceOptions,
+        IOptions<HealthCheckPublisherOptions> healthCheckPublisherOptions,
+        ILogger<HealthCheckPublisherHostedService> logger,
+        IEnumerable<IHealthCheckPublisher> publishers)
     {
-        private readonly HealthCheckService _healthCheckService;
-        private readonly IOptions<HealthCheckPublisherOptions> _options;
-        private readonly ILogger _logger;
-        private readonly IHealthCheckPublisher[] _publishers;
+        ArgumentNullThrowHelper.ThrowIfNull(healthCheckService);
+        ArgumentNullThrowHelper.ThrowIfNull(healthCheckServiceOptions);
+        ArgumentNullThrowHelper.ThrowIfNull(healthCheckPublisherOptions);
+        ArgumentNullThrowHelper.ThrowIfNull(logger);
+        ArgumentNullThrowHelper.ThrowIfNull(publishers);
 
-        private readonly CancellationTokenSource _stopping;
-        private Timer? _timer;
-        private CancellationTokenSource? _runTokenSource;
+        _healthCheckService = healthCheckService;
+        _healthCheckServiceOptions = healthCheckServiceOptions;
+        _healthCheckPublisherOptions = healthCheckPublisherOptions;
+        _logger = logger;
+        _publishers = publishers.ToArray();
 
-        public HealthCheckPublisherHostedService(
-            HealthCheckService healthCheckService,
-            IOptions<HealthCheckPublisherOptions> options,
-            ILogger<HealthCheckPublisherHostedService> logger,
-            IEnumerable<IHealthCheckPublisher> publishers)
+        _stopping = new CancellationTokenSource();
+    }
+
+    private (TimeSpan Delay, TimeSpan Period) GetTimerOptions(HealthCheckRegistration registration)
+    {
+        return (registration?.Delay ?? _healthCheckPublisherOptions.Value.Delay, registration?.Period ?? _healthCheckPublisherOptions.Value.Period);
+    }
+
+    internal bool IsStopping => _stopping.IsCancellationRequested;
+
+    internal bool IsTimerRunning => _timers != null;
+
+    public Task StartAsync(CancellationToken cancellationToken = default)
+    {
+        if (_publishers.Length == 0)
         {
-            if (healthCheckService == null)
-            {
-                throw new ArgumentNullException(nameof(healthCheckService));
-            }
-
-            if (options == null)
-            {
-                throw new ArgumentNullException(nameof(options));
-            }
-
-            if (logger == null)
-            {
-                throw new ArgumentNullException(nameof(logger));
-            }
-
-            if (publishers == null)
-            {
-                throw new ArgumentNullException(nameof(publishers));
-            }
-
-            _healthCheckService = healthCheckService;
-            _options = options;
-            _logger = logger;
-            _publishers = publishers.ToArray();
-
-            _stopping = new CancellationTokenSource();
-        }
-
-        internal bool IsStopping => _stopping.IsCancellationRequested;
-
-        internal bool IsTimerRunning => _timer != null;
-
-        public Task StartAsync(CancellationToken cancellationToken = default)
-        {
-            if (_publishers.Length == 0)
-            {
-                return Task.CompletedTask;
-            }
-
-            // IMPORTANT - make sure this is the last thing that happens in this method. The timer can
-            // fire before other code runs.
-            _timer = NonCapturingTimer.Create(Timer_Tick, null, dueTime: _options.Value.Delay, period: _options.Value.Period);
-
             return Task.CompletedTask;
         }
 
-        public Task StopAsync(CancellationToken cancellationToken = default)
+        // IMPORTANT - make sure this is the last thing that happens in this method. The timers can
+        // fire before other code runs.
+        _timers = CreateTimers();
+
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken = default)
+    {
+        try
         {
-            try
-            {
-                _stopping.Cancel();
-            }
-            catch
-            {
-                // Ignore exceptions thrown as a result of a cancellation.
-            }
+            _stopping.Cancel();
+        }
+        catch
+        {
+            // Ignore exceptions thrown as a result of a cancellation.
+        }
 
-            if (_publishers.Length == 0)
-            {
-                return Task.CompletedTask;
-            }
-
-            _timer?.Dispose();
-            _timer = null;
-
-
+        if (_publishers.Length == 0)
+        {
             return Task.CompletedTask;
         }
 
-        // Yes, async void. We need to be async. We need to be void. We handle the exceptions in RunAsync
-        private async void Timer_Tick(object? state)
+        if (_timers != null)
         {
-            await RunAsync();
+            foreach (var timer in _timers)
+            {
+                timer.Dispose();
+            }
+
+            _timers = null;
         }
 
-        // Internal for testing
-        internal void CancelToken()
+        return Task.CompletedTask;
+    }
+
+    private List<Timer> CreateTimers()
+    {
+        var delayPeriodGroups = new HashSet<(TimeSpan Delay, TimeSpan Period)>();
+        foreach (var hc in _healthCheckServiceOptions.Value.Registrations)
         {
-            _runTokenSource!.Cancel();
+            var timerOptions = GetTimerOptions(hc);
+            delayPeriodGroups.Add(timerOptions);
         }
 
-        // Internal for testing
-        internal async Task RunAsync()
+        var timers = new List<Timer>(delayPeriodGroups.Count);
+        foreach (var group in delayPeriodGroups)
         {
-            var duration = ValueStopwatch.StartNew();
-            Logger.HealthCheckPublisherProcessingBegin(_logger);
-
-            CancellationTokenSource? cancellation = null;
-            try
-            {
-                var timeout = _options.Value.Timeout;
-
-                cancellation = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
-                _runTokenSource = cancellation;
-                cancellation.CancelAfter(timeout);
-
-                await RunAsyncCore(cancellation.Token);
-
-                Logger.HealthCheckPublisherProcessingEnd(_logger, duration.GetElapsedTime());
-            }
-            catch (OperationCanceledException) when (IsStopping)
-            {
-                // This is a cancellation - if the app is shutting down we want to ignore it. Otherwise, it's
-                // a timeout and we want to log it.
-            }
-            catch (Exception ex)
-            {
-                // This is an error, publishing failed.
-                Logger.HealthCheckPublisherProcessingEnd(_logger, duration.GetElapsedTime(), ex);
-            }
-            finally
-            {
-                cancellation?.Dispose();
-            }
+            var timer = CreateTimer(group);
+            timers.Add(timer);
         }
 
-        private async Task RunAsyncCore(CancellationToken cancellationToken)
-        {
-            // Forcibly yield - we want to unblock the timer thread.
-            await Task.Yield();
+        return timers;
+    }
 
-            // The health checks service does it's own logging, and doesn't throw exceptions.
-            var report = await _healthCheckService.CheckHealthAsync(_options.Value.Predicate, cancellationToken);
-
-            var publishers = _publishers;
-            var tasks = new Task[publishers.Length];
-            for (var i = 0; i < publishers.Length; i++)
+    private Timer CreateTimer((TimeSpan Delay, TimeSpan Period) timerOptions)
+    {
+        return
+            NonCapturingTimer.Create(
+            async (state) =>
             {
-                tasks[i] = RunPublisherAsync(publishers[i], report, cancellationToken);
-            }
+                await RunAsync(timerOptions).ConfigureAwait(false);
+            },
+            null,
+            dueTime: timerOptions.Delay,
+            period: timerOptions.Period);
+    }
 
-            await Task.WhenAll(tasks);
+    // Internal for testing
+    internal void CancelToken()
+    {
+        _runTokenSource!.Cancel();
+    }
+
+    // Internal for testing
+    internal async Task RunAsync((TimeSpan Delay, TimeSpan Period) timerOptions)
+    {
+        var duration = ValueStopwatch.StartNew();
+        Logger.HealthCheckPublisherProcessingBegin(_logger);
+
+        CancellationTokenSource? cancellation = null;
+        try
+        {
+            var timeout = _healthCheckPublisherOptions.Value.Timeout;
+
+            cancellation = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
+            _runTokenSource = cancellation;
+            cancellation.CancelAfter(timeout);
+
+            await RunAsyncCore(timerOptions, cancellation.Token).ConfigureAwait(false);
+
+            Logger.HealthCheckPublisherProcessingEnd(_logger, duration.GetElapsedTime());
+        }
+        catch (OperationCanceledException) when (IsStopping)
+        {
+            // This is a cancellation - if the app is shutting down we want to ignore it. Otherwise, it's
+            // a timeout and we want to log it.
+        }
+        catch (Exception ex)
+        {
+            // This is an error, publishing failed.
+            Logger.HealthCheckPublisherProcessingEnd(_logger, duration.GetElapsedTime(), ex);
+        }
+        finally
+        {
+            cancellation?.Dispose();
+        }
+    }
+
+    private async Task RunAsyncCore((TimeSpan Delay, TimeSpan Period) timerOptions, CancellationToken cancellationToken)
+    {
+        // Forcibly yield - we want to unblock the timer thread.
+        await Task.Yield();
+
+        // Concatenate predicates - we only run HCs at the set delay and period
+        var withOptionsPredicate = (HealthCheckRegistration r) =>
+        {
+            // First check whether the current timer options correspond to the current registration,
+            // and then check the user-defined predicate if any.
+            return (GetTimerOptions(r) == timerOptions) && (_healthCheckPublisherOptions?.Value.Predicate ?? (_ => true))(r);
+        };
+
+        // The health checks service does it's own logging, and doesn't throw exceptions.
+        var report = await _healthCheckService.CheckHealthAsync(withOptionsPredicate, cancellationToken).ConfigureAwait(false);
+
+        var publishers = _publishers;
+        var tasks = new Task[publishers.Length];
+        for (var i = 0; i < publishers.Length; i++)
+        {
+            tasks[i] = RunPublisherAsync(publishers[i], report, cancellationToken);
         }
 
-        private async Task RunPublisherAsync(IHealthCheckPublisher publisher, HealthReport report, CancellationToken cancellationToken)
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+    }
+
+    private async Task RunPublisherAsync(IHealthCheckPublisher publisher, HealthReport report, CancellationToken cancellationToken)
+    {
+        var duration = ValueStopwatch.StartNew();
+
+        try
         {
-            var duration = ValueStopwatch.StartNew();
+            Logger.HealthCheckPublisherBegin(_logger, publisher);
 
-            try
-            {
-                Logger.HealthCheckPublisherBegin(_logger, publisher);
-
-                await publisher.PublishAsync(report, cancellationToken);
-                Logger.HealthCheckPublisherEnd(_logger, publisher, duration.GetElapsedTime());
-            }
-            catch (OperationCanceledException) when (IsStopping)
-            {
-                // This is a cancellation - if the app is shutting down we want to ignore it. Otherwise, it's
-                // a timeout and we want to log it.
-            }
-            catch (OperationCanceledException)
-            {
-                Logger.HealthCheckPublisherTimeout(_logger, publisher, duration.GetElapsedTime());
-                throw;
-            }
-            catch (Exception ex)
-            {
-                Logger.HealthCheckPublisherError(_logger, publisher, duration.GetElapsedTime(), ex);
-                throw;
-            }
+            await publisher.PublishAsync(report, cancellationToken).ConfigureAwait(false);
+            Logger.HealthCheckPublisherEnd(_logger, publisher, duration.GetElapsedTime());
         }
-
-        internal static class EventIds
+        catch (OperationCanceledException) when (IsStopping)
         {
-            public const int HealthCheckPublisherProcessingBeginId = 100;
-            public const int HealthCheckPublisherProcessingEndId = 101;
-            public const int HealthCheckPublisherBeginId = 102;
-            public const int HealthCheckPublisherEndId = 103;
-            public const int HealthCheckPublisherErrorId = 104;
-            public const int HealthCheckPublisherTimeoutId = 104;
-
-            // Hard code the event names to avoid breaking changes. Even if the methods are renamed, these hard-coded names shouldn't change.
-            public const string HealthCheckPublisherProcessingBeginName = "HealthCheckPublisherProcessingBegin";
-            public const string HealthCheckPublisherProcessingEndName = "HealthCheckPublisherProcessingEnd";
-            public const string HealthCheckPublisherBeginName = "HealthCheckPublisherBegin";
-            public const string HealthCheckPublisherEndName = "HealthCheckPublisherEnd";
-            public const string HealthCheckPublisherErrorName = "HealthCheckPublisherError";
-            public const string HealthCheckPublisherTimeoutName = "HealthCheckPublisherTimeout";
+            // This is a cancellation - if the app is shutting down we want to ignore it. Otherwise, it's
+            // a timeout and we want to log it.
         }
-
-        private static partial class Logger
+        catch (OperationCanceledException)
         {
-            [LoggerMessage(EventIds.HealthCheckPublisherProcessingBeginId, LogLevel.Debug, "Running health check publishers", EventName = EventIds.HealthCheckPublisherProcessingBeginName)]
-            public static partial void HealthCheckPublisherProcessingBegin(ILogger logger);
+            Logger.HealthCheckPublisherTimeout(_logger, publisher, duration.GetElapsedTime());
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Logger.HealthCheckPublisherError(_logger, publisher, duration.GetElapsedTime(), ex);
+            throw;
+        }
+    }
 
-            public static void HealthCheckPublisherProcessingEnd(ILogger logger, TimeSpan duration, Exception? exception = null) =>
-                HealthCheckPublisherProcessingEnd(logger, duration.TotalMilliseconds, exception);
+    internal static class EventIds
+    {
+        public const int HealthCheckPublisherProcessingBeginId = 100;
+        public const int HealthCheckPublisherProcessingEndId = 101;
+        public const int HealthCheckPublisherBeginId = 102;
+        public const int HealthCheckPublisherEndId = 103;
+        public const int HealthCheckPublisherErrorId = 104;
+        public const int HealthCheckPublisherTimeoutId = 104;
 
-            [LoggerMessage(EventIds.HealthCheckPublisherProcessingEndId, LogLevel.Debug, "Health check publisher processing completed after {ElapsedMilliseconds}ms", EventName = EventIds.HealthCheckPublisherProcessingEndName)]
-            private static partial void HealthCheckPublisherProcessingEnd(ILogger logger, double ElapsedMilliseconds, Exception? exception = null);
+        // Hard code the event names to avoid breaking changes. Even if the methods are renamed, these hard-coded names shouldn't change.
+        public const string HealthCheckPublisherProcessingBeginName = "HealthCheckPublisherProcessingBegin";
+        public const string HealthCheckPublisherProcessingEndName = "HealthCheckPublisherProcessingEnd";
+        public const string HealthCheckPublisherBeginName = "HealthCheckPublisherBegin";
+        public const string HealthCheckPublisherEndName = "HealthCheckPublisherEnd";
+        public const string HealthCheckPublisherErrorName = "HealthCheckPublisherError";
+        public const string HealthCheckPublisherTimeoutName = "HealthCheckPublisherTimeout";
+    }
 
-            [LoggerMessage(EventIds.HealthCheckPublisherBeginId, LogLevel.Debug, "Running health check publisher '{HealthCheckPublisher}'", EventName = EventIds.HealthCheckPublisherBeginName)]
-            public static partial void HealthCheckPublisherBegin(ILogger logger, IHealthCheckPublisher HealthCheckPublisher);
+    private static partial class Logger
+    {
+        [LoggerMessage(EventIds.HealthCheckPublisherProcessingBeginId, LogLevel.Debug, "Running health check publishers", EventName = EventIds.HealthCheckPublisherProcessingBeginName)]
+        public static partial void HealthCheckPublisherProcessingBegin(ILogger logger);
 
-            public static void HealthCheckPublisherEnd(ILogger logger, IHealthCheckPublisher HealthCheckPublisher, TimeSpan duration) =>
-                HealthCheckPublisherEnd(logger, HealthCheckPublisher, duration.TotalMilliseconds);
+        public static void HealthCheckPublisherProcessingEnd(ILogger logger, TimeSpan duration, Exception? exception = null) =>
+            HealthCheckPublisherProcessingEnd(logger, duration.TotalMilliseconds, exception);
 
-            [LoggerMessage(EventIds.HealthCheckPublisherEndId, LogLevel.Debug, "Health check '{HealthCheckPublisher}' completed after {ElapsedMilliseconds}ms", EventName = EventIds.HealthCheckPublisherEndName)]
-            private static partial void HealthCheckPublisherEnd(ILogger logger, IHealthCheckPublisher HealthCheckPublisher, double ElapsedMilliseconds);
+        [LoggerMessage(EventIds.HealthCheckPublisherProcessingEndId, LogLevel.Debug, "Health check publisher processing completed after {ElapsedMilliseconds}ms", EventName = EventIds.HealthCheckPublisherProcessingEndName)]
+        private static partial void HealthCheckPublisherProcessingEnd(ILogger logger, double ElapsedMilliseconds, Exception? exception = null);
 
-            public static void HealthCheckPublisherError(ILogger logger, IHealthCheckPublisher publisher, TimeSpan duration, Exception exception) =>
-                HealthCheckPublisherError(logger, publisher, duration.TotalMilliseconds, exception);
+        [LoggerMessage(EventIds.HealthCheckPublisherBeginId, LogLevel.Debug, "Running health check publisher '{HealthCheckPublisher}'", EventName = EventIds.HealthCheckPublisherBeginName)]
+        public static partial void HealthCheckPublisherBegin(ILogger logger, IHealthCheckPublisher HealthCheckPublisher);
+
+        public static void HealthCheckPublisherEnd(ILogger logger, IHealthCheckPublisher HealthCheckPublisher, TimeSpan duration) =>
+            HealthCheckPublisherEnd(logger, HealthCheckPublisher, duration.TotalMilliseconds);
+
+        [LoggerMessage(EventIds.HealthCheckPublisherEndId, LogLevel.Debug, "Health check '{HealthCheckPublisher}' completed after {ElapsedMilliseconds}ms", EventName = EventIds.HealthCheckPublisherEndName)]
+        private static partial void HealthCheckPublisherEnd(ILogger logger, IHealthCheckPublisher HealthCheckPublisher, double ElapsedMilliseconds);
+
+        public static void HealthCheckPublisherError(ILogger logger, IHealthCheckPublisher publisher, TimeSpan duration, Exception exception) =>
+            HealthCheckPublisherError(logger, publisher, duration.TotalMilliseconds, exception);
 
 #pragma warning disable SYSLIB1006
-            [LoggerMessage(EventIds.HealthCheckPublisherErrorId, LogLevel.Error, "Health check {HealthCheckPublisher} threw an unhandled exception after {ElapsedMilliseconds}ms", EventName = EventIds.HealthCheckPublisherErrorName)]
-            private static partial void HealthCheckPublisherError(ILogger logger, IHealthCheckPublisher HealthCheckPublisher, double ElapsedMilliseconds, Exception exception);
+        [LoggerMessage(EventIds.HealthCheckPublisherErrorId, LogLevel.Error, "Health check {HealthCheckPublisher} threw an unhandled exception after {ElapsedMilliseconds}ms", EventName = EventIds.HealthCheckPublisherErrorName)]
+        private static partial void HealthCheckPublisherError(ILogger logger, IHealthCheckPublisher HealthCheckPublisher, double ElapsedMilliseconds, Exception exception);
 
-            public static void HealthCheckPublisherTimeout(ILogger logger, IHealthCheckPublisher publisher, TimeSpan duration) =>
-                HealthCheckPublisherTimeout(logger, publisher, duration.TotalMilliseconds);
+        public static void HealthCheckPublisherTimeout(ILogger logger, IHealthCheckPublisher publisher, TimeSpan duration) =>
+            HealthCheckPublisherTimeout(logger, publisher, duration.TotalMilliseconds);
 
-            [LoggerMessage(EventIds.HealthCheckPublisherTimeoutId, LogLevel.Error, "Health check {HealthCheckPublisher} was canceled after {ElapsedMilliseconds}ms", EventName = EventIds.HealthCheckPublisherTimeoutName)]
-            private static partial void HealthCheckPublisherTimeout(ILogger logger, IHealthCheckPublisher HealthCheckPublisher, double ElapsedMilliseconds);
+        [LoggerMessage(EventIds.HealthCheckPublisherTimeoutId, LogLevel.Error, "Health check {HealthCheckPublisher} was canceled after {ElapsedMilliseconds}ms", EventName = EventIds.HealthCheckPublisherTimeoutName)]
+        private static partial void HealthCheckPublisherTimeout(ILogger logger, IHealthCheckPublisher HealthCheckPublisher, double ElapsedMilliseconds);
 #pragma warning restore SYSLIB1006
-        }
     }
 }

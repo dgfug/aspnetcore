@@ -1,46 +1,38 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Razor;
 using Microsoft.Extensions.Options;
 
-namespace Microsoft.Extensions.DependencyInjection
+namespace Microsoft.Extensions.DependencyInjection;
+
+/// <summary>
+/// Configures <see cref="MvcViewOptions"/> to use <see cref="RazorViewEngine"/>.
+/// </summary>
+internal sealed class MvcRazorMvcViewOptionsSetup : IConfigureOptions<MvcViewOptions>
 {
+    private readonly IRazorViewEngine _razorViewEngine;
+
     /// <summary>
-    /// Configures <see cref="MvcViewOptions"/> to use <see cref="RazorViewEngine"/>.
+    /// Initializes a new instance of <see cref="MvcRazorMvcViewOptionsSetup"/>.
     /// </summary>
-    internal class MvcRazorMvcViewOptionsSetup : IConfigureOptions<MvcViewOptions>
+    /// <param name="razorViewEngine">The <see cref="IRazorViewEngine"/>.</param>
+    public MvcRazorMvcViewOptionsSetup(IRazorViewEngine razorViewEngine)
     {
-        private readonly IRazorViewEngine _razorViewEngine;
+        ArgumentNullException.ThrowIfNull(razorViewEngine);
 
-        /// <summary>
-        /// Initializes a new instance of <see cref="MvcRazorMvcViewOptionsSetup"/>.
-        /// </summary>
-        /// <param name="razorViewEngine">The <see cref="IRazorViewEngine"/>.</param>
-        public MvcRazorMvcViewOptionsSetup(IRazorViewEngine razorViewEngine)
-        {
-            if (razorViewEngine == null)
-            {
-                throw new ArgumentNullException(nameof(razorViewEngine));
-            }
+        _razorViewEngine = razorViewEngine;
+    }
 
-            _razorViewEngine = razorViewEngine;
-        }
+    /// <summary>
+    /// Configures <paramref name="options"/> to use <see cref="RazorViewEngine"/>.
+    /// </summary>
+    /// <param name="options">The <see cref="MvcViewOptions"/> to configure.</param>
+    public void Configure(MvcViewOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
 
-        /// <summary>
-        /// Configures <paramref name="options"/> to use <see cref="RazorViewEngine"/>.
-        /// </summary>
-        /// <param name="options">The <see cref="MvcViewOptions"/> to configure.</param>
-        public void Configure(MvcViewOptions options)
-        {
-            if (options == null)
-            {
-                throw new ArgumentNullException(nameof(options));
-            }
-
-            options.ViewEngines.Add(_razorViewEngine);
-        }
+        options.ViewEngines.Add(_razorViewEngine);
     }
 }

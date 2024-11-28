@@ -3,6 +3,9 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 #endif
+#if (WindowsAuth)
+using Microsoft.AspNetCore.Authentication.Negotiate;
+#endif
 #if (IndividualLocalAuth)
 using Microsoft.AspNetCore.Identity;
 #endif
@@ -25,7 +28,7 @@ using Graph = Microsoft.Graph;
 #if (IndividualLocalAuth)
 using Company.WebApplication1.Data;
 #endif
-#if (OrganizationalAuth || IndividualB2CAuth || IndividualLocalAuth || MultiOrgAuth || GenerateGraph)
+#if (OrganizationalAuth || IndividualB2CAuth || IndividualLocalAuth || MultiOrgAuth || GenerateGraph || WindowsAuth)
 
 #endif
 var builder = WebApplication.CreateBuilder(args);
@@ -53,7 +56,7 @@ builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
     .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAd"))
         .EnableTokenAcquisitionToCallDownstreamApi(initialScopes)
 #if (GenerateApi)
-            .AddDownstreamWebApi("DownstreamApi", builder.Configuration.GetSection("DownstreamApi"))
+            .AddDownstreamApi("DownstreamApi", builder.Configuration.GetSection("DownstreamApi"))
 #endif
 #if (GenerateGraph)
             .AddMicrosoftGraph(builder.Configuration.GetSection("DownstreamApi"))
@@ -71,7 +74,7 @@ builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
 #if (GenerateApi)
     .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAdB2C"))
         .EnableTokenAcquisitionToCallDownstreamApi(initialScopes)
-            .AddDownstreamWebApi("DownstreamApi", builder.Configuration.GetSection("DownstreamApi"))
+            .AddDownstreamApi("DownstreamApi", builder.Configuration.GetSection("DownstreamApi"))
             .AddInMemoryTokenCaches();
 #else
     .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAdB2C"));
@@ -93,6 +96,18 @@ builder.Services.AddControllersWithViews();
 builder.Services.AddRazorPages()
     .AddMicrosoftIdentityUI();
 #endif
+#if (WindowsAuth)
+
+builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme)
+   .AddNegotiate();
+
+builder.Services.AddAuthorization(options =>
+{
+    // By default, all incoming requests will be authorized according to the default policy.
+    options.FallbackPolicy = options.DefaultPolicy;
+});
+builder.Services.AddRazorPages();
+#endif
 
 var app = builder.Build();
 
@@ -108,7 +123,7 @@ if (!app.Environment.IsDevelopment())
 #endif
 {
     app.UseExceptionHandler("/Home/Error");
-#if (RequiresHttps)
+#if (HasHttpsProfile)
     // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
@@ -117,20 +132,20 @@ app.UseHttpsRedirection();
 #else
 }
 #endif
-app.UseStaticFiles();
-
 app.UseRouting();
 
-#if (OrganizationalAuth || IndividualAuth)
-app.UseAuthentication();
-#endif
 app.UseAuthorization();
+
+app.MapStaticAssets();
 
 app.MapControllerRoute(
     name: "default",
-    pattern: "{controller=Home}/{action=Index}/{id?}");
+    pattern: "{controller=Home}/{action=Index}/{id?}")
+    .WithStaticAssets();
+
 #if (OrganizationalAuth || IndividualAuth)
-app.MapRazorPages();
+app.MapRazorPages()
+   .WithStaticAssets();
 #endif
 
 app.Run();

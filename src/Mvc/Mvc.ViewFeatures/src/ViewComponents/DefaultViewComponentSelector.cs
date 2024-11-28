@@ -1,111 +1,105 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
-using System.Collections.Generic;
 using System.Linq;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 
-namespace Microsoft.AspNetCore.Mvc.ViewComponents
+namespace Microsoft.AspNetCore.Mvc.ViewComponents;
+
+/// <summary>
+/// Default implementation of <see cref="IViewComponentSelector"/>.
+/// </summary>
+public class DefaultViewComponentSelector : IViewComponentSelector
 {
+    private readonly IViewComponentDescriptorCollectionProvider _descriptorProvider;
+
+    private ViewComponentDescriptorCache _cache;
+
     /// <summary>
-    /// Default implementation of <see cref="IViewComponentSelector"/>.
+    /// Creates a new <see cref="DefaultViewComponentSelector"/>.
     /// </summary>
-    public class DefaultViewComponentSelector : IViewComponentSelector
+    /// <param name="descriptorProvider">The <see cref="IViewComponentDescriptorCollectionProvider"/>.</param>
+    public DefaultViewComponentSelector(IViewComponentDescriptorCollectionProvider descriptorProvider)
     {
-        private readonly IViewComponentDescriptorCollectionProvider _descriptorProvider;
+        _descriptorProvider = descriptorProvider;
+    }
 
-        private ViewComponentDescriptorCache _cache;
+    /// <inheritdoc />
+    public ViewComponentDescriptor SelectComponent(string componentName)
+    {
+        ArgumentNullException.ThrowIfNull(componentName);
 
-        /// <summary>
-        /// Creates a new <see cref="DefaultViewComponentSelector"/>.
-        /// </summary>
-        /// <param name="descriptorProvider">The <see cref="IViewComponentDescriptorCollectionProvider"/>.</param>
-        public DefaultViewComponentSelector(IViewComponentDescriptorCollectionProvider descriptorProvider)
+        var collection = _descriptorProvider.ViewComponents;
+        if (_cache == null || _cache.Version != collection.Version)
         {
-            _descriptorProvider = descriptorProvider;
+            _cache = new ViewComponentDescriptorCache(collection);
         }
 
-        /// <inheritdoc />
-        public ViewComponentDescriptor SelectComponent(string componentName)
+        // ViewComponent names can either be fully-qualified, or refer to the 'short-name'. If the provided
+        // name contains a '.' - then it's a fully-qualified name.
+        if (componentName.Contains('.'))
         {
-            if (componentName == null)
-            {
-                throw new ArgumentNullException(nameof(componentName));
-            }
+            return _cache.SelectByFullName(componentName);
+        }
+        else
+        {
+            return _cache.SelectByShortName(componentName);
+        }
+    }
 
-            var collection = _descriptorProvider.ViewComponents;
-            if (_cache == null || _cache.Version != collection.Version)
-            {
-                _cache = new ViewComponentDescriptorCache(collection);
-            }
+    private sealed class ViewComponentDescriptorCache
+    {
+        private readonly ILookup<string, ViewComponentDescriptor> _lookupByShortName;
+        private readonly ILookup<string, ViewComponentDescriptor> _lookupByFullName;
 
-            // ViewComponent names can either be fully-qualified, or refer to the 'short-name'. If the provided
-            // name contains a '.' - then it's a fully-qualified name.
-            if (componentName.Contains("."))
+        public ViewComponentDescriptorCache(ViewComponentDescriptorCollection collection)
+        {
+            Version = collection.Version;
+
+            _lookupByShortName = collection.Items.ToLookup(c => c.ShortName, c => c);
+            _lookupByFullName = collection.Items.ToLookup(c => c.FullName, c => c);
+        }
+
+        public int Version { get; }
+
+        public ViewComponentDescriptor SelectByShortName(string name)
+        {
+            return Select(_lookupByShortName, name);
+        }
+
+        public ViewComponentDescriptor SelectByFullName(string name)
+        {
+            return Select(_lookupByFullName, name);
+        }
+
+        private static ViewComponentDescriptor Select(
+            ILookup<string, ViewComponentDescriptor> candidates,
+            string name)
+        {
+            var matches = candidates[name];
+
+            var count = matches.Count();
+            if (count == 0)
             {
-                return _cache.SelectByFullName(componentName);
+                return null;
+            }
+            else if (count == 1)
+            {
+                return matches.Single();
             }
             else
             {
-                return _cache.SelectByShortName(componentName);
-            }
-        }
-
-        private class ViewComponentDescriptorCache
-        {
-            private readonly ILookup<string, ViewComponentDescriptor> _lookupByShortName;
-            private readonly ILookup<string, ViewComponentDescriptor> _lookupByFullName;
-
-            public ViewComponentDescriptorCache(ViewComponentDescriptorCollection collection)
-            {
-                Version = collection.Version;
-
-                _lookupByShortName = collection.Items.ToLookup(c => c.ShortName, c => c);
-                _lookupByFullName = collection.Items.ToLookup(c => c.FullName, c => c);
-            }
-
-            public int Version { get; }
-
-            public ViewComponentDescriptor SelectByShortName(string name)
-            {
-                return Select(_lookupByShortName, name);
-            }
-
-            public ViewComponentDescriptor SelectByFullName(string name)
-            {
-                return Select(_lookupByFullName, name);
-            }
-
-            private static ViewComponentDescriptor Select(
-                ILookup<string, ViewComponentDescriptor> candidates,
-                string name)
-            {
-                var matches = candidates[name];
-
-                var count = matches.Count();
-                if (count == 0)
+                var matchedTypes = new List<string>();
+                foreach (var candidate in matches)
                 {
-                    return null;
+                    matchedTypes.Add(Resources.FormatViewComponent_AmbiguousTypeMatch_Item(
+                        candidate.TypeInfo.FullName,
+                        candidate.FullName));
                 }
-                else if (count == 1)
-                {
-                    return matches.Single();
-                }
-                else
-                {
-                    var matchedTypes = new List<string>();
-                    foreach (var candidate in matches)
-                    {
-                        matchedTypes.Add(Resources.FormatViewComponent_AmbiguousTypeMatch_Item(
-                            candidate.TypeInfo.FullName,
-                            candidate.FullName));
-                    }
 
-                    var typeNames = string.Join(Environment.NewLine, matchedTypes);
-                    throw new InvalidOperationException(
-                        Resources.FormatViewComponent_AmbiguousTypeMatch(name, Environment.NewLine, typeNames));
-                }
+                var typeNames = string.Join(Environment.NewLine, matchedTypes);
+                throw new InvalidOperationException(
+                    Resources.FormatViewComponent_AmbiguousTypeMatch(name, Environment.NewLine, typeNames));
             }
         }
     }

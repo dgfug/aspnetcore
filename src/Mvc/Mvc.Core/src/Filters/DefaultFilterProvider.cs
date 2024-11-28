@@ -1,81 +1,76 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc.Core;
 
-namespace Microsoft.AspNetCore.Mvc.Filters
+namespace Microsoft.AspNetCore.Mvc.Filters;
+
+internal sealed class DefaultFilterProvider : IFilterProvider
 {
-    internal class DefaultFilterProvider : IFilterProvider
+    public int Order => -1000;
+
+    /// <inheritdoc />
+    public void OnProvidersExecuting(FilterProviderContext context)
     {
-        public int Order => -1000;
+        ArgumentNullException.ThrowIfNull(context);
 
-        /// <inheritdoc />
-        public void OnProvidersExecuting(FilterProviderContext context)
+        if (context.ActionContext.ActionDescriptor.FilterDescriptors != null)
         {
-            if (context == null)
+            var results = context.Results;
+            // Perf: Avoid allocating enumerator and read interface .Count once rather than per iteration
+            var resultsCount = results.Count;
+            for (var i = 0; i < resultsCount; i++)
             {
-                throw new ArgumentNullException(nameof(context));
-            }
-
-            if (context.ActionContext.ActionDescriptor.FilterDescriptors != null)
-            {
-                var results = context.Results;
-                // Perf: Avoid allocating enumerator and read interface .Count once rather than per iteration
-                var resultsCount = results.Count;
-                for (var i = 0; i < resultsCount; i++)
-                {
-                    ProvideFilter(context, results[i]);
-                }
+                ProvideFilter(context, results[i]);
             }
         }
+    }
 
-        /// <inheritdoc />
-        public void OnProvidersExecuted(FilterProviderContext context)
+    /// <inheritdoc />
+    public void OnProvidersExecuted(FilterProviderContext context)
+    {
+    }
+
+    public static void ProvideFilter(FilterProviderContext context, FilterItem filterItem)
+    {
+        if (filterItem.Filter != null)
         {
+            return;
         }
 
-        public void ProvideFilter(FilterProviderContext context, FilterItem filterItem)
+        var filter = filterItem.Descriptor.Filter;
+
+        if (filter is not IFilterFactory filterFactory)
         {
-            if (filterItem.Filter != null)
-            {
-                return;
-            }
-
-            var filter = filterItem.Descriptor.Filter;
-
-            if (filter is not IFilterFactory filterFactory)
-            {
-                filterItem.Filter = filter;
-                filterItem.IsReusable = true;
-            }
-            else
-            {
-                var services = context.ActionContext.HttpContext.RequestServices;
-                filterItem.Filter = filterFactory.CreateInstance(services);
-                filterItem.IsReusable = filterFactory.IsReusable;
-
-                if (filterItem.Filter == null)
-                {
-                    throw new InvalidOperationException(Resources.FormatTypeMethodMustReturnNotNullValue(
-                        "CreateInstance",
-                        typeof(IFilterFactory).Name));
-                }
-
-                ApplyFilterToContainer(filterItem.Filter, filterFactory);
-            }
+            filterItem.Filter = filter;
+            filterItem.IsReusable = true;
         }
-
-        private void ApplyFilterToContainer(object actualFilter, IFilterMetadata filterMetadata)
+        else
         {
-            Debug.Assert(actualFilter != null, "actualFilter should not be null");
-            Debug.Assert(filterMetadata != null, "filterMetadata should not be null");
+            var services = context.ActionContext.HttpContext.RequestServices;
+            filterItem.Filter = filterFactory.CreateInstance(services);
+            filterItem.IsReusable = filterFactory.IsReusable;
 
-            if (actualFilter is IFilterContainer container)
+            if (filterItem.Filter == null)
             {
-                container.FilterDefinition = filterMetadata;
+                throw new InvalidOperationException(Resources.FormatTypeMethodMustReturnNotNullValue(
+                    "CreateInstance",
+                    typeof(IFilterFactory).Name));
             }
+
+            ApplyFilterToContainer(filterItem.Filter, filterFactory);
+        }
+    }
+
+    private static void ApplyFilterToContainer(object actualFilter, IFilterMetadata filterMetadata)
+    {
+        Debug.Assert(actualFilter != null, "actualFilter should not be null");
+        Debug.Assert(filterMetadata != null, "filterMetadata should not be null");
+
+        if (actualFilter is IFilterContainer container)
+        {
+            container.FilterDefinition = filterMetadata;
         }
     }
 }

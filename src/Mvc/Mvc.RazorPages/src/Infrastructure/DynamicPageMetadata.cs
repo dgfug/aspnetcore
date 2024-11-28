@@ -1,25 +1,20 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using Microsoft.AspNetCore.Routing;
 
-namespace Microsoft.AspNetCore.Mvc.RazorPages.Infrastructure
+namespace Microsoft.AspNetCore.Mvc.RazorPages.Infrastructure;
+
+internal sealed class DynamicPageMetadata : IDynamicEndpointMetadata
 {
-    internal class DynamicPageMetadata : IDynamicEndpointMetadata
+    public DynamicPageMetadata(RouteValueDictionary values)
     {
-        public DynamicPageMetadata(RouteValueDictionary values)
-        {
-            if (values == null)
-            {
-                throw new ArgumentNullException(nameof(values));
-            }
+        ArgumentNullException.ThrowIfNull(values);
 
-            Values = values;
-        }
-
-        public bool IsDynamic => true;
-
-        public RouteValueDictionary Values { get; }
+        Values = values;
     }
+
+    public bool IsDynamic => true;
+
+    public RouteValueDictionary Values { get; }
 }

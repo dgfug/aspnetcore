@@ -1,60 +1,54 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-
-using System;
 using System.ComponentModel;
 using System.Reflection;
 using Microsoft.Extensions.Internal;
 
-namespace Microsoft.AspNetCore.Mvc.Infrastructure
+namespace Microsoft.AspNetCore.Mvc.Infrastructure;
+
+internal static class ParameterDefaultValues
 {
-    internal static class ParameterDefaultValues
+    public static object?[] GetParameterDefaultValues(MethodBase methodInfo)
     {
-        public static object?[] GetParameterDefaultValues(MethodBase methodInfo)
+        ArgumentNullException.ThrowIfNull(methodInfo);
+
+        var parameters = methodInfo.GetParameters();
+        var values = new object?[parameters.Length];
+
+        for (var i = 0; i < parameters.Length; i++)
         {
-            if (methodInfo == null)
-            {
-                throw new ArgumentNullException(nameof(methodInfo));
-            }
-
-            var parameters = methodInfo.GetParameters();
-            var values = new object?[parameters.Length];
-
-            for (var i = 0; i < parameters.Length; i++)
-            {
-                values[i] = GetParameterDefaultValue(parameters[i]);
-            }
-
-            return values;
+            values[i] = GetParameterDefaultValue(parameters[i]);
         }
 
-        private static object? GetParameterDefaultValue(ParameterInfo parameterInfo)
-        {
-            TryGetDeclaredParameterDefaultValue(parameterInfo, out var defaultValue);
-            if (defaultValue == null && parameterInfo.ParameterType.IsValueType)
-            {
-                defaultValue = Activator.CreateInstance(parameterInfo.ParameterType);
-            }
+        return values;
+    }
 
-            return defaultValue;
+    private static object? GetParameterDefaultValue(ParameterInfo parameterInfo)
+    {
+        TryGetDeclaredParameterDefaultValue(parameterInfo, out var defaultValue);
+        if (defaultValue == null && parameterInfo.ParameterType.IsValueType)
+        {
+            defaultValue = Activator.CreateInstance(parameterInfo.ParameterType);
         }
 
-        public static bool TryGetDeclaredParameterDefaultValue(ParameterInfo parameterInfo, out object? defaultValue)
+        return defaultValue;
+    }
+
+    public static bool TryGetDeclaredParameterDefaultValue(ParameterInfo parameterInfo, out object? defaultValue)
+    {
+        if (ParameterDefaultValue.TryGetDefaultValue(parameterInfo, out defaultValue))
         {
-            if (ParameterDefaultValue.TryGetDefaultValue(parameterInfo, out defaultValue))
-            {
-                return true;
-            }
-
-            var defaultValueAttribute = parameterInfo.GetCustomAttribute<DefaultValueAttribute>(inherit: false);
-            if (defaultValueAttribute != null)
-            {
-                defaultValue = defaultValueAttribute.Value;
-                return true;
-            }
-
-            return false;
+            return true;
         }
+
+        var defaultValueAttribute = parameterInfo.GetCustomAttribute<DefaultValueAttribute>(inherit: false);
+        if (defaultValueAttribute != null)
+        {
+            defaultValue = defaultValueAttribute.Value;
+            return true;
+        }
+
+        return false;
     }
 }

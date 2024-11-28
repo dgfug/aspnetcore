@@ -3,43 +3,55 @@
 
 using System;
 
-namespace Microsoft.AspNetCore.Http.Connections.Client.Internal
+namespace Microsoft.AspNetCore.Http.Connections.Client.Internal;
+
+internal static class Utils
 {
-    internal static class Utils
+    public static Uri CreateEndPointUri(Uri url)
     {
-        public static Uri AppendPath(Uri url, string path)
+        // The EndPoint URI shouldn't have querystring or target.
+        var uriBuilder = new UriBuilder
         {
-            var builder = new UriBuilder(url);
-            if (!builder.Path.EndsWith("/", StringComparison.Ordinal))
-            {
-                builder.Path += "/";
-            }
-            builder.Path += path;
-            return builder.Uri;
+            Scheme = url.Scheme,
+            Host = url.Host,
+            Port = url.Port,
+            Path = url.AbsolutePath
+        };
+        return uriBuilder.Uri;
+    }
+
+    public static Uri AppendPath(Uri url, string path)
+    {
+        var builder = new UriBuilder(url);
+        if (!builder.Path.EndsWith("/", StringComparison.Ordinal))
+        {
+            builder.Path += "/";
+        }
+        builder.Path += path;
+        return builder.Uri;
+    }
+
+    internal static Uri AppendQueryString(Uri url, string qs)
+    {
+        if (string.IsNullOrEmpty(qs))
+        {
+            return url;
         }
 
-        internal static Uri AppendQueryString(Uri url, string qs)
+        var builder = new UriBuilder(url);
+        var newQueryString = builder.Query;
+        if (!string.IsNullOrEmpty(builder.Query))
         {
-            if (string.IsNullOrEmpty(qs))
-            {
-                return url;
-            }
-
-            var builder = new UriBuilder(url);
-            var newQueryString = builder.Query;
-            if (!string.IsNullOrEmpty(builder.Query))
-            {
-                newQueryString += "&";
-            }
-            newQueryString += qs;
-
-            if (newQueryString.Length > 0 && newQueryString[0] == '?')
-            {
-                newQueryString = newQueryString.Substring(1);
-            }
-
-            builder.Query = newQueryString;
-            return builder.Uri;
+            newQueryString += "&";
         }
+        newQueryString += qs;
+
+        if (newQueryString.Length > 0 && newQueryString[0] == '?')
+        {
+            newQueryString = newQueryString.Substring(1);
+        }
+
+        builder.Query = newQueryString;
+        return builder.Uri;
     }
 }

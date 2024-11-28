@@ -2,75 +2,67 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Microsoft.AspNetCore.Shared;
 using Newtonsoft.Json;
 
-namespace Microsoft.AspNetCore.JsonPatch.Operations
+namespace Microsoft.AspNetCore.JsonPatch.Operations;
+
+public class OperationBase
 {
-    public class OperationBase
+    private string _op;
+    private OperationType _operationType;
+
+    [JsonIgnore]
+    public OperationType OperationType
     {
-        private string _op;
-        private OperationType _operationType;
-
-        [JsonIgnore]
-        public OperationType OperationType
+        get
         {
-            get
-            {
-                return _operationType;
-            }
+            return _operationType;
         }
+    }
 
-        [JsonProperty("path")]
-        public string path { get; set; }
+    [JsonProperty(nameof(path))]
+    public string path { get; set; }
 
-        [JsonProperty("op")]
-        public string op
+    [JsonProperty(nameof(op))]
+    public string op
+    {
+        get
         {
-            get
-            {
-                return _op;
-            }
-            set
-            {
-                OperationType result;
-                if (!Enum.TryParse(value, ignoreCase: true, result: out result))
-                {
-                    result = OperationType.Invalid;
-                }
-                _operationType = result;
-                _op = value;
-            }
+            return _op;
         }
-
-        [JsonProperty("from")]
-        public string from { get; set; }
-
-        public OperationBase()
+        set
         {
-
-        }
-
-        public OperationBase(string op, string path, string from)
-        {
-            if (op == null)
+            OperationType result;
+            if (!Enum.TryParse(value, ignoreCase: true, result: out result))
             {
-                throw new ArgumentNullException(nameof(op));
+                result = OperationType.Invalid;
             }
-
-            if (path == null)
-            {
-                throw new ArgumentNullException(nameof(path));
-            }
-
-            this.op = op;
-            this.path = path;
-            this.from = from;
+            _operationType = result;
+            _op = value;
         }
+    }
 
-        public bool ShouldSerializefrom()
-        {
-            return (OperationType == OperationType.Move
-                || OperationType == OperationType.Copy);
-        }
+    [JsonProperty(nameof(from))]
+    public string from { get; set; }
+
+    public OperationBase()
+    {
+    }
+
+    public OperationBase(string op, string path, string from)
+    {
+        ArgumentNullThrowHelper.ThrowIfNull(op);
+        ArgumentNullThrowHelper.ThrowIfNull(path);
+
+        this.op = op;
+        this.path = path;
+        this.from = from;
+    }
+
+    public bool ShouldSerializefrom()
+    {
+        return (OperationType == OperationType.Move
+            || OperationType == OperationType.Copy);
     }
 }

@@ -1,94 +1,91 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Microsoft.AspNetCore.JsonPatch.Exceptions;
 using System;
 using System.Collections.Generic;
 using System.Text;
+using Microsoft.AspNetCore.JsonPatch.Exceptions;
+using Microsoft.AspNetCore.Shared;
 
-namespace Microsoft.AspNetCore.JsonPatch.Internal
+namespace Microsoft.AspNetCore.JsonPatch.Internal;
+
+/// <summary>
+/// This API supports infrastructure and is not intended to be used
+/// directly from your code. This API may change or be removed in future releases.
+/// </summary>
+public readonly struct ParsedPath
 {
-    /// <summary>
-    /// This API supports infrastructure and is not intended to be used
-    /// directly from your code. This API may change or be removed in future releases.
-    /// </summary>
-    public readonly struct ParsedPath
+    private readonly string[] _segments;
+
+    public ParsedPath(string path)
     {
-        private readonly string[] _segments;
+        ArgumentNullThrowHelper.ThrowIfNull(path);
 
-        public ParsedPath(string path)
+        _segments = ParsePath(path);
+    }
+
+    public string LastSegment
+    {
+        get
         {
-            if (path == null)
+            if (_segments == null || _segments.Length == 0)
             {
-                throw new ArgumentNullException(nameof(path));
+                return null;
             }
 
-            _segments = ParsePath(path);
+            return _segments[_segments.Length - 1];
         }
+    }
 
-        public string LastSegment
+    public IReadOnlyList<string> Segments => _segments;
+
+    private static string[] ParsePath(string path)
+    {
+        var strings = new List<string>();
+        var sb = new StringBuilder(path.Length);
+
+        for (var i = 0; i < path.Length; i++)
         {
-            get
+            if (path[i] == '/')
             {
-                if (_segments == null || _segments.Length == 0)
+                if (sb.Length > 0)
                 {
-                    return null;
+                    strings.Add(sb.ToString());
+                    sb.Length = 0;
                 }
-
-                return _segments[_segments.Length - 1];
             }
-        }
-
-        public IReadOnlyList<string> Segments => _segments;
-
-        private static string[] ParsePath(string path)
-        {
-            var strings = new List<string>();
-            var sb = new StringBuilder(path.Length);
-
-            for (var i = 0; i < path.Length; i++)
+            else if (path[i] == '~')
             {
-                if (path[i] == '/')
+                ++i;
+                if (i >= path.Length)
                 {
-                    if (sb.Length > 0)
-                    {
-                        strings.Add(sb.ToString());
-                        sb.Length = 0;
-                    }
+                    throw new JsonPatchException(Resources.FormatInvalidValueForPath(path), null);
                 }
-                else if (path[i] == '~')
-                {
-                    ++i;
-                    if (i >= path.Length)
-                    {
-                        throw new JsonPatchException(Resources.FormatInvalidValueForPath(path), null);
-                    }
 
-                    if (path[i] == '0')
-                    {
-                        sb.Append('~');
-                    }
-                    else if (path[i] == '1')
-                    {
-                        sb.Append('/');
-                    }
-                    else
-                    {
-                        throw new JsonPatchException(Resources.FormatInvalidValueForPath(path), null);
-                    }
+                if (path[i] == '0')
+                {
+                    sb.Append('~');
+                }
+                else if (path[i] == '1')
+                {
+                    sb.Append('/');
                 }
                 else
                 {
-                    sb.Append(path[i]);
+                    throw new JsonPatchException(Resources.FormatInvalidValueForPath(path), null);
                 }
             }
-
-            if (sb.Length > 0)
+            else
             {
-                strings.Add(sb.ToString());
+                sb.Append(path[i]);
             }
-
-            return strings.ToArray();
         }
+
+        if (sb.Length > 0)
+        {
+            strings.Add(sb.ToString());
+        }
+
+        return strings.ToArray();
     }
 }

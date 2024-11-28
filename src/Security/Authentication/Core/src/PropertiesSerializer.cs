@@ -1,96 +1,81 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
-using System.Collections.Generic;
-using System.IO;
+namespace Microsoft.AspNetCore.Authentication;
 
-namespace Microsoft.AspNetCore.Authentication
+/// <summary>
+/// A <see cref="IDataSerializer{TModel}"/> for <see cref="AuthenticationProperties"/>.
+/// </summary>
+public class PropertiesSerializer : IDataSerializer<AuthenticationProperties>
 {
+    private const int FormatVersion = 1;
+
     /// <summary>
-    /// A <see cref="IDataSerializer{TModel}"/> for <see cref="AuthenticationProperties"/>.
+    /// Gets the default instance of <see cref="PropertiesSerializer"/>.
     /// </summary>
-    public class PropertiesSerializer : IDataSerializer<AuthenticationProperties>
+    public static PropertiesSerializer Default { get; } = new PropertiesSerializer();
+
+    /// <inheritdoc />
+    public virtual byte[] Serialize(AuthenticationProperties model)
     {
-        private const int FormatVersion = 1;
-
-        /// <summary>
-        /// Gets the default instance of <see cref="PropertiesSerializer"/>.
-        /// </summary>
-        public static PropertiesSerializer Default { get; } = new PropertiesSerializer();
-
-        /// <inheritdoc />
-        public virtual byte[] Serialize(AuthenticationProperties model)
+        using (var memory = new MemoryStream())
         {
-            using (var memory = new MemoryStream())
+            using (var writer = new BinaryWriter(memory))
             {
-                using (var writer = new BinaryWriter(memory))
-                {
-                    Write(writer, model);
-                    writer.Flush();
-                    return memory.ToArray();
-                }
+                Write(writer, model);
+                writer.Flush();
+                return memory.ToArray();
             }
         }
+    }
 
-        /// <inheritdoc />
-        public virtual AuthenticationProperties? Deserialize(byte[] data)
+    /// <inheritdoc />
+    public virtual AuthenticationProperties? Deserialize(byte[] data)
+    {
+        using (var memory = new MemoryStream(data))
         {
-            using (var memory = new MemoryStream(data))
+            using (var reader = new BinaryReader(memory))
             {
-                using (var reader = new BinaryReader(memory))
-                {
-                    return Read(reader);
-                }
+                return Read(reader);
             }
         }
+    }
 
-        /// <inheritdoc />
-        public virtual void Write(BinaryWriter writer, AuthenticationProperties properties)
+    /// <inheritdoc />
+    public virtual void Write(BinaryWriter writer, AuthenticationProperties properties)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        ArgumentNullException.ThrowIfNull(properties);
+
+        writer.Write(FormatVersion);
+        writer.Write(properties.Items.Count);
+
+        foreach (var item in properties.Items)
         {
-            if (writer == null)
-            {
-                throw new ArgumentNullException(nameof(writer));
-            }
+            writer.Write(item.Key ?? string.Empty);
+            writer.Write(item.Value ?? string.Empty);
+        }
+    }
 
-            if (properties == null)
-            {
-                throw new ArgumentNullException(nameof(properties));
-            }
+    /// <inheritdoc />
+    public virtual AuthenticationProperties? Read(BinaryReader reader)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
 
-            writer.Write(FormatVersion);
-            writer.Write(properties.Items.Count);
-
-            foreach (var item in properties.Items)
-            {
-                writer.Write(item.Key ?? string.Empty);
-                writer.Write(item.Value ?? string.Empty);
-            }
+        if (reader.ReadInt32() != FormatVersion)
+        {
+            return null;
         }
 
-        /// <inheritdoc />
-        public virtual AuthenticationProperties? Read(BinaryReader reader)
+        var count = reader.ReadInt32();
+        var extra = new Dictionary<string, string?>(count);
+
+        for (var index = 0; index != count; ++index)
         {
-            if (reader == null)
-            {
-                throw new ArgumentNullException(nameof(reader));
-            }
-
-            if (reader.ReadInt32() != FormatVersion)
-            {
-                return null;
-            }
-
-            var count = reader.ReadInt32();
-            var extra = new Dictionary<string, string?>(count);
-
-            for (var index = 0; index != count; ++index)
-            {
-                var key = reader.ReadString();
-                var value = reader.ReadString();
-                extra.Add(key, value);
-            }
-            return new AuthenticationProperties(extra);
+            var key = reader.ReadString();
+            var value = reader.ReadString();
+            extra.Add(key, value);
         }
+        return new AuthenticationProperties(extra);
     }
 }

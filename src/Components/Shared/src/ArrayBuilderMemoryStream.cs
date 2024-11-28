@@ -1,130 +1,114 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
-using System.IO;
 using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Components.RenderTree;
 
 #if BLAZOR_WEBVIEW
-namespace Microsoft.AspNetCore.Components.WebView
+namespace Microsoft.AspNetCore.Components.WebView;
 #else
-namespace Microsoft.AspNetCore.Components.Server.Circuits
+namespace Microsoft.AspNetCore.Components.Server.Circuits;
 #endif
+
+/// <summary>
+/// Writeable memory stream backed by a an <see cref="ArrayBuilder{T}"/>.
+/// </summary>
+internal sealed class ArrayBuilderMemoryStream : Stream
 {
-    /// <summary>
-    /// Writeable memory stream backed by a an <see cref="ArrayBuilder{T}"/>.
-    /// </summary>
-    internal sealed class ArrayBuilderMemoryStream : Stream
+    public ArrayBuilderMemoryStream(ArrayBuilder<byte> arrayBuilder)
     {
-        public ArrayBuilderMemoryStream(ArrayBuilder<byte> arrayBuilder)
-        {
-            ArrayBuilder = arrayBuilder;
-        }
+        ArrayBuilder = arrayBuilder;
+    }
 
-        /// <inheritdoc />
-        public override bool CanRead => false;
+    /// <inheritdoc />
+    public override bool CanRead => false;
 
-        /// <inheritdoc />
-        public override bool CanSeek => false;
+    /// <inheritdoc />
+    public override bool CanSeek => false;
 
-        /// <inheritdoc />
-        public override bool CanWrite => true;
+    /// <inheritdoc />
+    public override bool CanWrite => true;
 
-        /// <inheritdoc />
-        public override long Length => ArrayBuilder.Count;
+    /// <inheritdoc />
+    public override long Length => ArrayBuilder.Count;
 
-        /// <inheritdoc />
-        public override long Position
-        {
-            get => ArrayBuilder.Count;
-            set => throw new NotSupportedException();
-        }
+    /// <inheritdoc />
+    public override long Position
+    {
+        get => ArrayBuilder.Count;
+        set => throw new NotSupportedException();
+    }
 
-        public ArrayBuilder<byte> ArrayBuilder { get; }
+    public ArrayBuilder<byte> ArrayBuilder { get; }
 
-        /// <inheritdoc />
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+    /// <inheritdoc />
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
 
-        /// <inheritdoc />
-        public override int Read(byte[] buffer, int offset, int count)
-            => throw new NotSupportedException();
+    /// <inheritdoc />
+    public override int Read(byte[] buffer, int offset, int count)
+        => throw new NotSupportedException();
 
-        /// <inheritdoc />
-        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
-            => throw new NotSupportedException();
+    /// <inheritdoc />
+    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        => throw new NotSupportedException();
 
-        /// <inheritdoc />
-        public override void Write(byte[] buffer, int offset, int count)
-        {
-            ValidateArguments(buffer, offset, count);
+    public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken)
+        => throw new NotSupportedException();
 
-            ArrayBuilder.Append(buffer, offset, count);
-        }
+    /// <inheritdoc />
+    public override void Write(byte[] buffer, int offset, int count)
+    {
+        ValidateBufferArguments(buffer, offset, count);
 
-        /// <inheritdoc />
-        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
-        {
-            ValidateArguments(buffer, offset, count);
+        ArrayBuilder.Append(buffer, offset, count);
+    }
 
-            ArrayBuilder.Append(buffer, offset, count);
-            return Task.CompletedTask;
-        }
+    public override void Write(ReadOnlySpan<byte> buffer)
+    {
+        ArrayBuilder.Append(buffer);
+    }
 
-        /// <inheritdoc />
-        public override void Flush()
-        {
-            // Do nothing.
-        }
+    public override ValueTask WriteAsync(ReadOnlyMemory<byte> memory, CancellationToken cancellationToken)
+    {
+        ArrayBuilder.Append(memory.Span);
+        return default;
+    }
 
-        /// <inheritdoc />
-        public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    /// <inheritdoc />
+    public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+    {
+        ValidateBufferArguments(buffer, offset, count);
 
-        /// <inheritdoc />
-        public override void SetLength(long value) => throw new NotSupportedException();
+        ArrayBuilder.Append(buffer, offset, count);
+        return Task.CompletedTask;
+    }
 
-        /// <inheritdoc />
-        protected override void Dispose(bool disposing)
-        {
-            // Do nothing.
-        }
+    /// <inheritdoc />
+    public override void Flush()
+    {
+        // Do nothing.
+    }
 
-        /// <inheritdoc />
-        public override ValueTask DisposeAsync() => default;
+    /// <inheritdoc />
+    public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void ValidateArguments(byte[] buffer, int offset, int count)
-        {
-            if (buffer == null)
-            {
-                ThrowHelper.ThrowArgumentNullException(nameof(buffer));
-            }
+    /// <inheritdoc />
+    public override void SetLength(long value) => throw new NotSupportedException();
 
-            if (offset < 0)
-            {
-                ThrowHelper.ThrowArgumentOutOfRangeException(nameof(offset));
-            }
+    /// <inheritdoc />
+    protected override void Dispose(bool disposing)
+    {
+        // Do nothing.
+    }
 
-            if (count < 0)
-            {
-                ThrowHelper.ThrowArgumentOutOfRangeException(nameof(count));
-            }
+    /// <inheritdoc />
+    public override ValueTask DisposeAsync() => default;
 
-            if (buffer.Length - offset < count)
-            {
-                ThrowHelper.ThrowArgumentOutOfRangeException(nameof(offset));
-            }
-        }
+    private static class ThrowHelper
+    {
+        public static void ThrowArgumentNullException(string name)
+            => throw new ArgumentNullException(name);
 
-        private static class ThrowHelper
-        {
-            public static void ThrowArgumentNullException(string name)
-                => throw new ArgumentNullException(name);
-
-            public static void ThrowArgumentOutOfRangeException(string name)
-                => throw new ArgumentOutOfRangeException(name);
-        }
+        public static void ThrowArgumentOutOfRangeException(string name)
+            => throw new ArgumentOutOfRangeException(name);
     }
 }

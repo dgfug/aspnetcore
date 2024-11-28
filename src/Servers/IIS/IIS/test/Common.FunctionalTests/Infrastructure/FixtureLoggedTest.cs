@@ -2,31 +2,30 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Reflection;
-using Microsoft.AspNetCore.Testing;
+using Microsoft.AspNetCore.InternalTesting;
 using Microsoft.Extensions.Logging.Testing;
 using Xunit.Abstractions;
 
-namespace Microsoft.AspNetCore.Server.IIS.FunctionalTests
+namespace Microsoft.AspNetCore.Server.IIS.FunctionalTests;
+
+public class FixtureLoggedTest : LoggedTest
 {
-    public class FixtureLoggedTest : LoggedTest
+    protected IISTestSiteFixture Fixture { get; set; }
+
+    public FixtureLoggedTest(IISTestSiteFixture fixture)
     {
-        protected IISTestSiteFixture Fixture { get; set; }
+        Fixture = fixture;
+    }
 
-        public FixtureLoggedTest(IISTestSiteFixture fixture)
-        {
-            Fixture = fixture;
-        }
+    protected override void Initialize(TestContext context, MethodInfo methodInfo, object[] testMethodArguments, ITestOutputHelper testOutputHelper)
+    {
+        base.Initialize(context, methodInfo, testMethodArguments, testOutputHelper);
+        Fixture.Attach(this);
+    }
 
-        public override void Initialize(TestContext context, MethodInfo methodInfo, object[] testMethodArguments, ITestOutputHelper testOutputHelper)
-        {
-            base.Initialize(context, methodInfo, testMethodArguments, testOutputHelper);
-            Fixture.Attach(this);
-        }
-
-        public override void Dispose()
-        {
-            Fixture.Detach(this);
-            base.Dispose();
-        }
+    public override void Dispose()
+    {
+        Fixture.Detach(this);
+        base.Dispose();
     }
 }

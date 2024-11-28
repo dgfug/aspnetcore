@@ -3,38 +3,47 @@
 
 using System.Net;
 using System.Net.Http;
-using System.Threading.Tasks;
-using Xunit;
+using System.Reflection;
+using Microsoft.AspNetCore.InternalTesting;
+using Xunit.Abstractions;
 
-namespace Microsoft.AspNetCore.Mvc.FunctionalTests
+namespace Microsoft.AspNetCore.Mvc.FunctionalTests;
+
+public class MvcSandboxTest : LoggedTest
 {
-    public class MvcSandboxTest : IClassFixture<MvcTestFixture<MvcSandbox.Startup>>
+    protected override void Initialize(TestContext context, MethodInfo methodInfo, object[] testMethodArguments, ITestOutputHelper testOutputHelper)
     {
-        public MvcSandboxTest(MvcTestFixture<MvcSandbox.Startup> fixture)
-        {
-            Client = fixture.CreateDefaultClient();
-        }
+        base.Initialize(context, methodInfo, testMethodArguments, testOutputHelper);
+        Factory = new MvcTestFixture<MvcSandbox.Startup>(LoggerFactory);
+        Client = Factory.CreateDefaultClient();
+    }
 
-        public HttpClient Client { get; }
+    public override void Dispose()
+    {
+        Factory.Dispose();
+        base.Dispose();
+    }
 
-        [Fact]
-        public async Task Home_Pages_ReturnSuccess()
-        {
-            // Arrange & Act
-            var response = await Client.GetAsync("http://localhost");
+    public MvcTestFixture<MvcSandbox.Startup> Factory { get; private set; }
+    public HttpClient Client { get; private set; }
 
-            // Assert
-            await response.AssertStatusCodeAsync(HttpStatusCode.OK);
-        }
+    [Fact]
+    public async Task Home_Pages_ReturnSuccess()
+    {
+        // Arrange & Act
+        var response = await Client.GetAsync("http://localhost");
 
-        [Fact]
-        public async Task RazorPages_ReturnSuccess()
-        {
-            // Arrange & Act
-            var response = await Client.GetAsync("http://localhost/PagesHome");
+        // Assert
+        await response.AssertStatusCodeAsync(HttpStatusCode.OK);
+    }
 
-            // Assert
-            await response.AssertStatusCodeAsync(HttpStatusCode.OK);
-        }
+    [Fact]
+    public async Task RazorPages_ReturnSuccess()
+    {
+        // Arrange & Act
+        var response = await Client.GetAsync("http://localhost/PagesHome");
+
+        // Assert
+        await response.AssertStatusCodeAsync(HttpStatusCode.OK);
     }
 }

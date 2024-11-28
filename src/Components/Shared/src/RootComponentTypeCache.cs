@@ -1,66 +1,82 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 
-namespace Microsoft.AspNetCore.Components
-{
-    // A cache for root component types
-    internal class RootComponentTypeCache
-    {
-        private readonly ConcurrentDictionary<Key, Type?> _typeToKeyLookUp = new();
+namespace Microsoft.AspNetCore.Components;
 
-        public Type? GetRootComponent(string assembly, string type)
+// A cache for root component types
+internal sealed class RootComponentTypeCache
+{
+    private readonly ConcurrentDictionary<Key, Type?> _typeToKeyLookUp = new();
+
+    public Type? GetRootComponent(string assembly, string type)
+    {
+        var key = new Key(assembly, type);
+        if (_typeToKeyLookUp.TryGetValue(key, out var resolvedType))
         {
-            var key = new Key(assembly, type);
-            if (_typeToKeyLookUp.TryGetValue(key, out var resolvedType))
+            return resolvedType;
+        }
+        else
+        {
+            return _typeToKeyLookUp.GetOrAdd(key, ResolveType, AppDomain.CurrentDomain.GetAssemblies());
+        }
+    }
+
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Root components are expected to be defined in assemblies that do not get trimmed.")]
+    private static Type? ResolveType(Key key, Assembly[] assemblies)
+    {
+        Assembly? assembly = null;
+        for (var i = 0; i < assemblies.Length; i++)
+        {
+            var current = assemblies[i];
+            if (current.GetName().Name == key.Assembly)
             {
-                return resolvedType;
-            }
-            else
-            {
-                return _typeToKeyLookUp.GetOrAdd(key, ResolveType, AppDomain.CurrentDomain.GetAssemblies());
+                assembly = current;
+                break;
             }
         }
 
-        private static Type? ResolveType(Key key, Assembly[] assemblies)
+        if (assembly == null)
         {
-            Assembly? assembly = null;
-            for (var i = 0; i < assemblies.Length; i++)
+            // It might be that the assembly is not loaded yet, this can happen if the root component is defined in a
+            // different assembly than the app and there is no reference from the app assembly to any type in the class
+            // library that has been used yet.
+            // In this case, try and load the assembly and look up the type again.
+            // We only need to do this in the browser because its a different process, in the server the assembly will already
+            // be loaded.
+            if (OperatingSystem.IsBrowser())
             {
-                var current = assemblies[i];
-                if (current.GetName().Name == key.Assembly)
+                try
                 {
-                    assembly = current;
-                    break;
+                    assembly = Assembly.Load(key.Assembly);
+                }
+                catch
+                {
+                    // It's fine to ignore the exception, since we'll return null below.
                 }
             }
-
-            if (assembly == null)
-            {
-                return null;
-            }
-
-            return assembly.GetType(key.Type, throwOnError: false, ignoreCase: false);
         }
 
-        private readonly struct Key : IEquatable<Key>
-        {
-            public Key(string assembly, string type) =>
-                (Assembly, Type) = (assembly, type);
+        return assembly?.GetType(key.Type, throwOnError: false, ignoreCase: false);
+    }
 
-            public string Assembly { get; }
+    private readonly struct Key : IEquatable<Key>
+    {
+        public Key(string assembly, string type) =>
+            (Assembly, Type) = (assembly, type);
 
-            public string Type { get; }
+        public string Assembly { get; }
 
-            public override bool Equals(object? obj) => obj is Key key && Equals(key);
+        public string Type { get; }
 
-            public bool Equals(Key other) => string.Equals(Assembly, other.Assembly, StringComparison.Ordinal) &&
-                string.Equals(Type, other.Type, StringComparison.Ordinal);
+        public override bool Equals(object? obj) => obj is Key key && Equals(key);
 
-            public override int GetHashCode() => HashCode.Combine(Assembly, Type);
-        }
+        public bool Equals(Key other) => string.Equals(Assembly, other.Assembly, StringComparison.Ordinal) &&
+            string.Equals(Type, other.Type, StringComparison.Ordinal);
+
+        public override int GetHashCode() => HashCode.Combine(Assembly, Type);
     }
 }

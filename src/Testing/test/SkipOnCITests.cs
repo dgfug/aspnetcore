@@ -2,21 +2,20 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using Microsoft.AspNetCore.Testing;
+using Microsoft.AspNetCore.InternalTesting;
 using Xunit;
 
-namespace Microsoft.AspNetCore.Testing.Tests
+namespace Microsoft.AspNetCore.InternalTesting.Tests;
+
+public class SkipOnCITests
 {
-    public class SkipOnCITests
+    [ConditionalFact]
+    [SkipOnCI]
+    public void AlwaysSkipOnCI()
     {
-        [ConditionalFact]
-        [SkipOnCI]
-        public void AlwaysSkipOnCI()
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("HELIX")) || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("AGENT_OS")))
         {
-            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("HELIX")) || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("AGENT_OS")))
-            {
-                throw new Exception("Flaky!");
-            }
+            throw new Exception("Flaky!");
         }
     }
 }

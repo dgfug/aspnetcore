@@ -1,111 +1,110 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
+using System.Collections.Frozen;
 using System.Text;
 using Microsoft.AspNetCore.Http;
 
-namespace Microsoft.AspNetCore.Routing
+namespace Microsoft.AspNetCore.Routing;
+
+internal sealed class EndpointNameAddressScheme : IEndpointAddressScheme<string>, IDisposable
 {
-    internal sealed class EndpointNameAddressScheme : IEndpointAddressScheme<string>, IDisposable
+    private readonly DataSourceDependentCache<FrozenDictionary<string, Endpoint[]>> _cache;
+
+    public EndpointNameAddressScheme(EndpointDataSource dataSource)
     {
-        private readonly DataSourceDependentCache<Dictionary<string, Endpoint[]>> _cache;
+        _cache = new DataSourceDependentCache<FrozenDictionary<string, Endpoint[]>>(dataSource, Initialize);
+    }
 
-        public EndpointNameAddressScheme(EndpointDataSource dataSource)
+    // Internal for tests
+    internal FrozenDictionary<string, Endpoint[]> Entries => _cache.EnsureInitialized();
+
+    public IEnumerable<Endpoint> FindEndpoints(string address)
+    {
+        ArgumentNullException.ThrowIfNull(address);
+
+        // Capture the current value of the cache
+        var entries = Entries;
+
+        entries.TryGetValue(address, out var result);
+        return result ?? Array.Empty<Endpoint>();
+    }
+
+    private static FrozenDictionary<string, Endpoint[]> Initialize(IReadOnlyList<Endpoint> endpoints)
+    {
+        // Collect duplicates as we go, blow up on startup if we find any.
+        var hasDuplicates = false;
+
+        var entries = new Dictionary<string, Endpoint[]>(StringComparer.Ordinal);
+        for (var i = 0; i < endpoints.Count; i++)
         {
-            _cache = new DataSourceDependentCache<Dictionary<string, Endpoint[]>>(dataSource, Initialize);
-        }
+            var endpoint = endpoints[i];
 
-        // Internal for tests
-        internal Dictionary<string, Endpoint[]> Entries => _cache.EnsureInitialized();
-
-        public IEnumerable<Endpoint> FindEndpoints(string address)
-        {
-            if (address == null)
+            var endpointName = GetEndpointName(endpoint);
+            if (endpointName == null)
             {
-                throw new ArgumentNullException(nameof(address));
+                continue;
             }
 
-            // Capture the current value of the cache
-            var entries = Entries;
-
-            entries.TryGetValue(address, out var result);
-            return result ?? Array.Empty<Endpoint>();
-        }
-
-        private static Dictionary<string, Endpoint[]> Initialize(IReadOnlyList<Endpoint> endpoints)
-        {
-            // Collect duplicates as we go, blow up on startup if we find any.
-            var hasDuplicates = false;
-
-            var entries = new Dictionary<string, Endpoint[]>(StringComparer.Ordinal);
-            for (var i = 0; i < endpoints.Count; i++)
+            if (!entries.TryGetValue(endpointName, out var existing))
             {
-                var endpoint = endpoints[i];
-
-                var endpointName = GetEndpointName(endpoint);
-                if (endpointName == null)
-                {
-                    continue;
-                }
-
-                if (!entries.TryGetValue(endpointName, out var existing))
-                {
-                    // This isn't a duplicate (so far)
-                    entries[endpointName] = new[] { endpoint };
-                    continue;
-                }
-
-                // Ok this is a duplicate, because we have two endpoints with the same name. Bail out, because we
-                // are just going to throw, we don't need to finish collecting data.
+                // This isn't a duplicate (so far)
+                entries[endpointName] = new[] { endpoint };
+                continue;
+            }
+            else
+            {
+                // Ok this is a duplicate, because we have two endpoints with the same name. Collect all the data
+                // so we can throw an exception. The extra allocations here don't matter since this is an exceptional case.
                 hasDuplicates = true;
-                break;
+
+                var newEntry = new Endpoint[existing.Length + 1];
+                Array.Copy(existing, newEntry, existing.Length);
+                newEntry[existing.Length] = endpoint;
+                entries[endpointName] = newEntry;
             }
+        }
 
-            if (!hasDuplicates)
-            {
-                // No duplicates, success!
-                return entries;
-            }
+        if (!hasDuplicates)
+        {
+            // No duplicates, success!
+            return entries.ToFrozenDictionary(StringComparer.Ordinal);
+        }
 
-            // OK we need to report some duplicates.
-            var duplicates = endpoints
-                .GroupBy(e => GetEndpointName(e))
-                .Where(g => g.Key != null && g.Count() > 1);
+        // OK we need to report some duplicates.
+        var builder = new StringBuilder();
+        builder.AppendLine(Resources.DuplicateEndpointNameHeader);
 
-            var builder = new StringBuilder();
-            builder.AppendLine(Resources.DuplicateEndpointNameHeader);
-
-            foreach (var group in duplicates)
+        foreach (var group in entries)
+        {
+            if (group.Key is not null && group.Value.Length > 1)
             {
                 builder.AppendLine();
                 builder.AppendLine(Resources.FormatDuplicateEndpointNameEntry(group.Key));
 
-                foreach (var endpoint in group)
+                foreach (var endpoint in group.Value)
                 {
                     builder.AppendLine(endpoint.DisplayName);
                 }
             }
-
-            throw new InvalidOperationException(builder.ToString());
-
-            string? GetEndpointName(Endpoint endpoint)
-            {
-                if (endpoint.Metadata.GetMetadata<ISuppressLinkGenerationMetadata>()?.SuppressLinkGeneration == true)
-                {
-                    // Skip anything that's suppressed for linking.
-                    return null;
-                }
-
-                return endpoint.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName;
-            }
         }
 
-        public void Dispose()
+        throw new InvalidOperationException(builder.ToString());
+
+        static string? GetEndpointName(Endpoint endpoint)
         {
-            _cache.Dispose();
+            if (endpoint.Metadata.GetMetadata<ISuppressLinkGenerationMetadata>()?.SuppressLinkGeneration == true)
+            {
+                // Skip anything that's suppressed for linking.
+                return null;
+            }
+
+            return endpoint.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName;
         }
+    }
+
+    public void Dispose()
+    {
+        _cache.Dispose();
     }
 }

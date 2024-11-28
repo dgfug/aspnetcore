@@ -3,119 +3,128 @@
 
 using System.Net;
 using System.Net.Http;
-using System.Threading.Tasks;
-using Xunit;
+using System.Reflection;
+using Microsoft.AspNetCore.InternalTesting;
+using Xunit.Abstractions;
 
-namespace Microsoft.AspNetCore.Mvc.FunctionalTests
+namespace Microsoft.AspNetCore.Mvc.FunctionalTests;
+
+public class ControllerFromServicesTest : LoggedTest
 {
-    public class ControllerFromServicesTest : IClassFixture<MvcTestFixture<ControllersFromServicesWebSite.Startup>>
+    protected override void Initialize(TestContext context, MethodInfo methodInfo, object[] testMethodArguments, ITestOutputHelper testOutputHelper)
     {
-        public ControllerFromServicesTest(MvcTestFixture<ControllersFromServicesWebSite.Startup> fixture)
-        {
-            Client = fixture.CreateDefaultClient();
-        }
+        base.Initialize(context, methodInfo, testMethodArguments, testOutputHelper);
+        Factory = new MvcTestFixture<ControllersFromServicesWebSite.Startup>(LoggerFactory);
+        Client = Factory.CreateDefaultClient();
+    }
 
-        public HttpClient Client { get; }
+    public override void Dispose()
+    {
+        Factory.Dispose();
+        base.Dispose();
+    }
 
-        [Fact]
-        public async Task ControllersWithConstructorInjectionAreCreatedAndActivated()
-        {
-            // Arrange
-            var expected = "/constructorinjection 14 test-header-value";
-            var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/constructorinjection?value=14");
-            request.Headers.TryAddWithoutValidation("Test-Header", "test-header-value");
+    public MvcTestFixture<ControllersFromServicesWebSite.Startup> Factory { get; private set; }
+    public HttpClient Client { get; private set; }
 
-            // Act
-            var response = await Client.SendAsync(request);
-            var responseText = await response.Content.ReadAsStringAsync();
+    [Fact]
+    public async Task ControllersWithConstructorInjectionAreCreatedAndActivated()
+    {
+        // Arrange
+        var expected = "/constructorinjection 14 test-header-value";
+        var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/constructorinjection?value=14");
+        request.Headers.TryAddWithoutValidation("Test-Header", "test-header-value");
 
-            // Assert
-            Assert.Equal(expected, responseText);
-        }
+        // Act
+        var response = await Client.SendAsync(request);
+        var responseText = await response.Content.ReadAsStringAsync();
 
-        [Fact]
-        public async Task TypesDerivingFromControllerAreRegistered()
-        {
-            // Arrange
-            var expected = "No schedules available for 23";
+        // Assert
+        Assert.Equal(expected, responseText);
+    }
 
-            // Act
-            var response = await Client.GetStringAsync("http://localhost/schedule/23");
+    [Fact]
+    public async Task TypesDerivingFromControllerAreRegistered()
+    {
+        // Arrange
+        var expected = "No schedules available for 23";
 
-            // Assert
-            Assert.Equal(expected, response);
-        }
+        // Act
+        var response = await Client.GetStringAsync("http://localhost/schedule/23");
 
-        [Fact]
-        public async Task TypesDerivingFromTypesWithControllerAttributeAreRegistered()
-        {
-            // Arrange
-            var expected = "4";
+        // Assert
+        Assert.Equal(expected, response);
+    }
 
-            // Act
-            var response = await Client.GetStringAsync("http://localhost/inventory/");
+    [Fact]
+    public async Task TypesDerivingFromTypesWithControllerAttributeAreRegistered()
+    {
+        // Arrange
+        var expected = "4";
 
-            // Assert
-            Assert.Equal(expected, response);
-        }
+        // Act
+        var response = await Client.GetStringAsync("http://localhost/inventory/");
 
-        [Fact]
-        public async Task TypesWithControllerSuffixAreRegistered()
-        {
-            // Arrange
-            var expected = "Updated record employee303";
+        // Assert
+        Assert.Equal(expected, response);
+    }
 
-            // Act
-            var response = await Client.PutAsync(
-                "http://localhost/employee/update_records?recordId=employee303",
-                new StringContent(string.Empty));
+    [Fact]
+    public async Task TypesWithControllerSuffixAreRegistered()
+    {
+        // Arrange
+        var expected = "Updated record employee303";
 
-            // Assert
-            response.EnsureSuccessStatusCode();
-            Assert.Equal(expected, await response.Content.ReadAsStringAsync());
-        }
+        // Act
+        var response = await Client.PutAsync(
+            "http://localhost/employee/update_records?recordId=employee303",
+            new StringContent(string.Empty));
 
-        [Fact]
-        public async Task TypesWithControllerSuffixAreConventionalRouted()
-        {
-            // Arrange
-            var expected = "Saved record employee #211";
+        // Assert
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(expected, await response.Content.ReadAsStringAsync());
+    }
 
-            // Act
-            var response = await Client.PostAsync(
-                "http://localhost/employeerecords/save/211",
-                new StringContent(string.Empty));
+    [Fact]
+    public async Task TypesWithControllerSuffixAreConventionalRouted()
+    {
+        // Arrange
+        var expected = "Saved record employee #211";
 
-            // Assert
-            response.EnsureSuccessStatusCode();
-            Assert.Equal(expected, await response.Content.ReadAsStringAsync());
-        }
+        // Act
+        var response = await Client.PostAsync(
+            "http://localhost/employeerecords/save/211",
+            new StringContent(string.Empty));
 
-        [Theory]
-        [InlineData("not-discovered/generic")]
-        [InlineData("not-discovered/nested")]
-        [InlineData("not-discovered/not-in-services")]
-        [InlineData("ClientUIStub/GetClientContent/5")]
-        public async Task AddControllersFromServices_UsesControllerDiscoveryContentions(string action)
-        {
-            // Arrange & Act
-            var response = await Client.GetAsync("http://localhost/" + action);
+        // Assert
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(expected, await response.Content.ReadAsStringAsync());
+    }
 
-            // Assert
-            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        }
+    [Theory]
+    [InlineData("not-discovered/generic")]
+    [InlineData("not-discovered/nested")]
+    [InlineData("not-discovered/not-in-services")]
+    [InlineData("ClientUIStub/GetClientContent/5")]
+    public async Task AddControllersFromServices_UsesControllerDiscoveryContentions(string action)
+    {
+        // Arrange & Act
+        var response = await Client.GetAsync("http://localhost/" + action);
 
-        [Fact]
-        public async Task AddControllersAsServices_MultipleCalls_DoesNotReplacePreviousProvider()
-        {
-            // Arrange
-            var expected = "1";
+        // Assert
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
 
-            // Act
-            var response = await Client.GetStringAsync("http://localhost/another/");
+    [Fact]
+    public async Task AddControllersAsServices_MultipleCalls_DoesNotReplacePreviousProvider()
+    {
+        // Arrange
+        var expected = "1";
 
-            // Assert
-            Assert.Equal(expected, response);
-        }
+        // Act
+        var response = await Client.GetStringAsync("http://localhost/another/");
+
+        // Assert
+        Assert.Equal(expected, response);
     }
 }

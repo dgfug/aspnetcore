@@ -1,73 +1,67 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using System.Diagnostics;
-using System.Threading.Tasks;
 
-namespace Microsoft.AspNetCore.Mvc.ModelBinding
+namespace Microsoft.AspNetCore.Mvc.ModelBinding;
+
+public class StubModelBinder : IModelBinder
 {
-    public class StubModelBinder : IModelBinder
+    private readonly Func<ModelBindingContext, Task> _callback;
+
+    public StubModelBinder()
     {
-        private readonly Func<ModelBindingContext, Task> _callback;
+        _callback = context => Task.CompletedTask;
+    }
 
-        public StubModelBinder()
+    public StubModelBinder(ModelBindingResult result)
+    {
+        _callback = context =>
         {
-            _callback = context => Task.CompletedTask;
-        }
+            context.Result = result;
+            return Task.CompletedTask;
+        };
+    }
 
-        public StubModelBinder(ModelBindingResult result)
+    public StubModelBinder(Action<ModelBindingContext> callback)
+    {
+        _callback = context =>
         {
-            _callback = context =>
-            {
-                context.Result = result;
-                return Task.CompletedTask;
-            };
-        }
+            callback(context);
+            return Task.CompletedTask;
+        };
+    }
 
-        public StubModelBinder(Action<ModelBindingContext> callback)
+    public StubModelBinder(Func<ModelBindingContext, ModelBindingResult> callback)
+    {
+        _callback = context =>
         {
-            _callback = context =>
-            {
-                callback(context);
-                return Task.CompletedTask;
-            };
-        }
+            var result = callback.Invoke(context);
+            context.Result = result;
+            return Task.CompletedTask;
+        };
+    }
 
-        public StubModelBinder(Func<ModelBindingContext, ModelBindingResult> callback)
+    public StubModelBinder(Func<ModelBindingContext, Task<ModelBindingResult>> callback)
+    {
+        _callback = async context =>
         {
-            _callback = context =>
-            {
-                var result = callback.Invoke(context);
-                context.Result = result;
-                return Task.CompletedTask;
-            };
-        }
+            var result = await callback.Invoke(context);
+            context.Result = result;
+        };
+    }
 
-        public StubModelBinder(Func<ModelBindingContext, Task<ModelBindingResult>> callback)
-        {
-            _callback = async context =>
-            {
-                var result = await callback.Invoke(context);
-                context.Result = result;
-            };
-        }
+    public int BindModelCount { get; set; }
 
-        public int BindModelCount { get; set; }
+    public IModelBinder Object => this;
 
-        public IModelBinder Object => this;
+    public virtual async Task BindModelAsync(ModelBindingContext bindingContext)
+    {
+        BindModelCount += 1;
 
-        public virtual async Task BindModelAsync(ModelBindingContext bindingContext)
-        {
-            BindModelCount += 1;
+        ArgumentNullException.ThrowIfNull(bindingContext);
 
-            if (bindingContext == null)
-            {
-                throw new ArgumentNullException(nameof(bindingContext));
-            }
-
-            Debug.Assert(bindingContext.Result == ModelBindingResult.Failed());
-            await _callback.Invoke(bindingContext);
-        }
+        Debug.Assert(bindingContext.Result == ModelBindingResult.Failed());
+        await _callback.Invoke(bindingContext);
     }
 }

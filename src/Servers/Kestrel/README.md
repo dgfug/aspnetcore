@@ -2,7 +2,7 @@
 
 Kestrel is our cross-platform web server that is included and enabled by default in ASP.NET Core.
 
-Documentation for ASP.NET Core Kestrel can be found in the [ASP.NET Core Kestrel Docs](https://docs.microsoft.com/aspnet/core/fundamentals/servers/kestrel).
+Documentation for ASP.NET Core Kestrel can be found in the [ASP.NET Core Kestrel Docs](https://learn.microsoft.com/aspnet/core/fundamentals/servers/kestrel).
 
 ## Description
 
@@ -13,7 +13,6 @@ The following contains a description of the sub-directories.
 - [test/](test/): Contains End to End tests for Kestrel.
 - [Transport.Sockets/](Transport.Sockets/):Contains the Sockets transport for connection management.
 - [Transport.Quic/](Transport.Quic/): Contains the QUIC transport for connection management.
-- [Transport.Libuv/](Transport.Libuv/): Contains the obsolete Libuv transport for connection management.
 
 ## Development Setup
 

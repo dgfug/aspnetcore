@@ -2,33 +2,42 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Net.Http;
-using System.Threading.Tasks;
-using Xunit;
+using System.Reflection;
+using Microsoft.AspNetCore.InternalTesting;
+using Xunit.Abstractions;
 
-namespace Microsoft.AspNetCore.Mvc.FunctionalTests
+namespace Microsoft.AspNetCore.Mvc.FunctionalTests;
+
+public class TagHelpersFromServicesTest : LoggedTest
 {
-    public class TagHelpersFromServicesTest : IClassFixture<MvcTestFixture<ControllersFromServicesWebSite.Startup>>
+    protected override void Initialize(TestContext context, MethodInfo methodInfo, object[] testMethodArguments, ITestOutputHelper testOutputHelper)
     {
-        public TagHelpersFromServicesTest(MvcTestFixture<ControllersFromServicesWebSite.Startup> fixture)
-        {
-            Client = fixture.CreateDefaultClient();
-        }
+        base.Initialize(context, methodInfo, testMethodArguments, testOutputHelper);
+        Factory = new MvcTestFixture<ControllersFromServicesWebSite.Startup>(LoggerFactory);
+        Client = Factory.CreateDefaultClient();
+    }
 
-        public HttpClient Client { get; }
+    public override void Dispose()
+    {
+        Factory.Dispose();
+        base.Dispose();
+    }
 
-        [Fact]
-        public async Task TagHelpersWithConstructorInjectionAreCreatedAndActivated()
-        {
-            // Arrange
-            var expected = "3";
-            var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/another/inservicestaghelper");
+    public MvcTestFixture<ControllersFromServicesWebSite.Startup> Factory { get; private set; }
+    public HttpClient Client { get; private set; }
 
-            // Act
-            var response = await Client.SendAsync(request);
-            var responseText = await response.Content.ReadAsStringAsync();
+    [Fact]
+    public async Task TagHelpersWithConstructorInjectionAreCreatedAndActivated()
+    {
+        // Arrange
+        var expected = "3";
+        var request = new HttpRequestMessage(HttpMethod.Get, "http://localhost/another/inservicestaghelper");
 
-            // Assert
-            Assert.Equal(expected, responseText.Trim());
-        }
+        // Act
+        var response = await Client.SendAsync(request);
+        var responseText = await response.Content.ReadAsStringAsync();
+
+        // Assert
+        Assert.Equal(expected, responseText.Trim());
     }
 }

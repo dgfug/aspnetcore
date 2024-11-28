@@ -1,3 +1,6 @@
+// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+
 import { ReconnectDisplay } from './ReconnectDisplay';
 export class UserSpecifiedDisplay implements ReconnectDisplay {
   static readonly ShowClassName = 'components-reconnect-show';
@@ -12,13 +15,17 @@ export class UserSpecifiedDisplay implements ReconnectDisplay {
 
   static readonly CurrentAttemptId = 'components-reconnect-current-attempt';
 
-  constructor(private dialog: HTMLElement, private readonly maxRetries: number, private readonly document: Document) {
+  static readonly SecondsToNextAttemptId = 'components-seconds-to-next-attempt';
+
+  constructor(private dialog: HTMLElement, private readonly document: Document, maxRetries?: number) {
     this.document = document;
 
-    const maxRetriesElement = this.document.getElementById(UserSpecifiedDisplay.MaxRetriesId);
+    if (maxRetries !== undefined) {
+      const maxRetriesElement = this.document.getElementById(UserSpecifiedDisplay.MaxRetriesId);
 
-    if (maxRetriesElement) {
-      maxRetriesElement.innerText = this.maxRetries.toString();
+      if (maxRetriesElement) {
+        maxRetriesElement.innerText = maxRetries.toString();
+      }
     }
   }
 
@@ -27,11 +34,17 @@ export class UserSpecifiedDisplay implements ReconnectDisplay {
     this.dialog.classList.add(UserSpecifiedDisplay.ShowClassName);
   }
 
-  update(currentAttempt: number): void {
+  update(currentAttempt: number, secondsToNextAttempt: number): void {
     const currentAttemptElement = this.document.getElementById(UserSpecifiedDisplay.CurrentAttemptId);
 
     if (currentAttemptElement) {
       currentAttemptElement.innerText = currentAttempt.toString();
+    }
+
+    const secondsToNextAttemptElement = this.document.getElementById(UserSpecifiedDisplay.SecondsToNextAttemptId);
+
+    if (secondsToNextAttemptElement) {
+      secondsToNextAttemptElement.innerText = secondsToNextAttempt.toString();
     }
   }
 

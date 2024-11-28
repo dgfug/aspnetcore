@@ -3,30 +3,24 @@
 
 #nullable enable
 
-using System;
+namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders;
 
-namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
+/// <summary>
+/// An <see cref="IModelBinderProvider"/> for models which specify an <see cref="IModelBinder"/>
+/// using <see cref="BindingInfo.BinderType"/>.
+/// </summary>
+public class BinderTypeModelBinderProvider : IModelBinderProvider
 {
-    /// <summary>
-    /// An <see cref="IModelBinderProvider"/> for models which specify an <see cref="IModelBinder"/>
-    /// using <see cref="BindingInfo.BinderType"/>.
-    /// </summary>
-    public class BinderTypeModelBinderProvider : IModelBinderProvider
+    /// <inheritdoc />
+    public IModelBinder? GetBinder(ModelBinderProviderContext context)
     {
-        /// <inheritdoc />
-        public IModelBinder? GetBinder(ModelBinderProviderContext context)
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (context.BindingInfo.BinderType is Type binderType)
         {
-            if (context == null)
-            {
-                throw new ArgumentNullException(nameof(context));
-            }
-
-            if (context.BindingInfo.BinderType is Type binderType)
-            {
-                return new BinderTypeModelBinder(binderType);
-            }
-
-            return null;
+            return new BinderTypeModelBinder(binderType);
         }
+
+        return null;
     }
 }

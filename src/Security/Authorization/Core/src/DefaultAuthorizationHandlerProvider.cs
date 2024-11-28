@@ -4,33 +4,30 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Shared;
 
-namespace Microsoft.AspNetCore.Authorization
+namespace Microsoft.AspNetCore.Authorization;
+
+/// <summary>
+/// The default implementation of a handler provider,
+/// which provides the <see cref="IAuthorizationHandler"/>s for an authorization request.
+/// </summary>
+public class DefaultAuthorizationHandlerProvider : IAuthorizationHandlerProvider
 {
+    private readonly Task<IEnumerable<IAuthorizationHandler>> _handlersTask;
+
     /// <summary>
-    /// The default implementation of a handler provider,
-    /// which provides the <see cref="IAuthorizationHandler"/>s for an authorization request.
+    /// Creates a new instance of <see cref="DefaultAuthorizationHandlerProvider"/>.
     /// </summary>
-    public class DefaultAuthorizationHandlerProvider : IAuthorizationHandlerProvider
+    /// <param name="handlers">The <see cref="IAuthorizationHandler"/>s.</param>
+    public DefaultAuthorizationHandlerProvider(IEnumerable<IAuthorizationHandler> handlers)
     {
-        private readonly IEnumerable<IAuthorizationHandler> _handlers;
+        ArgumentNullThrowHelper.ThrowIfNull(handlers);
 
-        /// <summary>
-        /// Creates a new instance of <see cref="DefaultAuthorizationHandlerProvider"/>.
-        /// </summary>
-        /// <param name="handlers">The <see cref="IAuthorizationHandler"/>s.</param>
-        public DefaultAuthorizationHandlerProvider(IEnumerable<IAuthorizationHandler> handlers)
-        {
-            if (handlers == null)
-            {
-                throw new ArgumentNullException(nameof(handlers));
-            }
-
-            _handlers = handlers;
-        }
-
-        /// <inheritdoc />
-        public Task<IEnumerable<IAuthorizationHandler>> GetHandlersAsync(AuthorizationHandlerContext context)
-            => Task.FromResult(_handlers);
+        _handlersTask = Task.FromResult(handlers);
     }
+
+    /// <inheritdoc />
+    public Task<IEnumerable<IAuthorizationHandler>> GetHandlersAsync(AuthorizationHandlerContext context)
+        => _handlersTask;
 }

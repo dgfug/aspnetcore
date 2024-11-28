@@ -1,143 +1,136 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+#nullable enable
+
 using System;
 using System.Diagnostics;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.AspNetCore.Shared;
 
-namespace Microsoft.AspNetCore.Identity
+namespace Microsoft.AspNetCore.Identity;
+
+internal static class Rfc6238AuthenticationService
 {
-    internal static class Rfc6238AuthenticationService
+    private static readonly TimeSpan _timestep = TimeSpan.FromMinutes(3);
+    private static readonly Encoding _encoding = new UTF8Encoding(false, true);
+#if NETSTANDARD2_0 || NETFRAMEWORK
+    private static readonly DateTime _unixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+#endif
+
+    internal static int ComputeTotp(
+#if NET6_0_OR_GREATER
+        byte[] key,
+#else
+        HashAlgorithm hashAlgorithm,
+#endif
+        ulong timestepNumber,
+        byte[]? modifierBytes)
     {
-        private static readonly TimeSpan _timestep = TimeSpan.FromMinutes(3);
-        private static readonly Encoding _encoding = new UTF8Encoding(false, true);
-#if NETSTANDARD2_0 || NETFRAMEWORK
-        private static readonly DateTime _unixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        private static readonly RandomNumberGenerator _rng = RandomNumberGenerator.Create();
-#endif
+        // # of 0's = length of pin
+        const int Mod = 1000000;
 
-        // Generates a new 80-bit security token
-        public static byte[] GenerateRandomKey()
-        {
-            byte[] bytes = new byte[20];
-#if NETSTANDARD2_0 || NETFRAMEWORK
-            _rng.GetBytes(bytes);
-#else
-            RandomNumberGenerator.Fill(bytes);
-#endif
-            return bytes;
-        }
-
-        internal static int ComputeTotp(
+        // See https://tools.ietf.org/html/rfc4226
+        // We can add an optional modifier
 #if NET6_0_OR_GREATER
-            byte[] key,
+        Span<byte> timestepAsBytes = stackalloc byte[sizeof(long)];
+        var res = BitConverter.TryWriteBytes(timestepAsBytes, IPAddress.HostToNetworkOrder((long)timestepNumber));
+        Debug.Assert(res);
 #else
-            HashAlgorithm hashAlgorithm,
+        var timestepAsBytes = BitConverter.GetBytes(IPAddress.HostToNetworkOrder((long)timestepNumber));
 #endif
-            ulong timestepNumber,
-            string modifier)
-        {
-            // # of 0's = length of pin
-            const int Mod = 1000000;
-
-            // See https://tools.ietf.org/html/rfc4226
-            // We can add an optional modifier
-            var timestepAsBytes = BitConverter.GetBytes(IPAddress.HostToNetworkOrder((long)timestepNumber));
 
 #if NET6_0_OR_GREATER
-            var hash = HMACSHA1.HashData(key, ApplyModifier(timestepAsBytes, modifier));
+        Span<byte> modifierCombinedBytes = timestepAsBytes;
+        if (modifierBytes is not null)
+        {
+            modifierCombinedBytes = ApplyModifier(timestepAsBytes, modifierBytes);
+        }
+        Span<byte> hash = stackalloc byte[HMACSHA1.HashSizeInBytes];
+        res = HMACSHA1.TryHashData(key, modifierCombinedBytes, hash, out var written);
+        Debug.Assert(res);
+        Debug.Assert(written == hash.Length);
 #else
-            var hash = hashAlgorithm.ComputeHash(ApplyModifier(timestepAsBytes, modifier));
+        var hash = hashAlgorithm.ComputeHash(ApplyModifier(timestepAsBytes, modifierBytes));
 #endif
 
-            // Generate DT string
-            var offset = hash[hash.Length - 1] & 0xf;
-            Debug.Assert(offset + 4 < hash.Length);
-            var binaryCode = (hash[offset] & 0x7f) << 24
-                             | (hash[offset + 1] & 0xff) << 16
-                             | (hash[offset + 2] & 0xff) << 8
-                             | (hash[offset + 3] & 0xff);
+        // Generate DT string
+        var offset = hash[hash.Length - 1] & 0xf;
+        Debug.Assert(offset + 4 < hash.Length);
+        var binaryCode = (hash[offset] & 0x7f) << 24
+                            | (hash[offset + 1] & 0xff) << 16
+                            | (hash[offset + 2] & 0xff) << 8
+                            | (hash[offset + 3] & 0xff);
 
-            return binaryCode % Mod;
-        }
+        return binaryCode % Mod;
+    }
 
-        private static byte[] ApplyModifier(byte[] input, string modifier)
-        {
-            if (string.IsNullOrEmpty(modifier))
-            {
-                return input;
-            }
+    private static byte[] ApplyModifier(Span<byte> input, byte[] modifierBytes)
+    {
+        var combined = new byte[checked(input.Length + modifierBytes.Length)];
+        input.CopyTo(combined);
+        Buffer.BlockCopy(modifierBytes, 0, combined, input.Length, modifierBytes.Length);
+        return combined;
+    }
 
-            var modifierBytes = _encoding.GetBytes(modifier);
-            var combined = new byte[checked(input.Length + modifierBytes.Length)];
-            Buffer.BlockCopy(input, 0, combined, 0, input.Length);
-            Buffer.BlockCopy(modifierBytes, 0, combined, input.Length, modifierBytes.Length);
-            return combined;
-        }
-
-        // More info: https://tools.ietf.org/html/rfc6238#section-4
-        private static ulong GetCurrentTimeStepNumber()
-        {
+    // More info: https://tools.ietf.org/html/rfc6238#section-4
+    private static ulong GetCurrentTimeStepNumber()
+    {
 #if NETSTANDARD2_0 || NETFRAMEWORK
-            var delta = DateTime.UtcNow - _unixEpoch;
+        var delta = DateTime.UtcNow - _unixEpoch;
 #else
-            var delta = DateTimeOffset.UtcNow - DateTimeOffset.UnixEpoch;
+        var delta = DateTimeOffset.UtcNow - DateTimeOffset.UnixEpoch;
 #endif
-            return (ulong)(delta.Ticks / _timestep.Ticks);
-        }
+        return (ulong)(delta.Ticks / _timestep.Ticks);
+    }
 
-        public static int GenerateCode(byte[] securityToken, string modifier = null)
-        {
-            if (securityToken == null)
-            {
-                throw new ArgumentNullException(nameof(securityToken));
-            }
+    public static int GenerateCode(byte[] securityToken, string? modifier = null)
+    {
+        ArgumentNullThrowHelper.ThrowIfNull(securityToken);
 
-            // Allow a variance of no greater than 9 minutes in either direction
-            var currentTimeStep = GetCurrentTimeStepNumber();
+        // Allow a variance of no greater than 9 minutes in either direction
+        var currentTimeStep = GetCurrentTimeStepNumber();
 
+        var modifierBytes = modifier is not null ? _encoding.GetBytes(modifier) : null;
 #if NET6_0_OR_GREATER
-            return ComputeTotp(securityToken, currentTimeStep, modifier);
+        return ComputeTotp(securityToken, currentTimeStep, modifierBytes);
 #else
-            using (var hashAlgorithm = new HMACSHA1(securityToken))
-            {
-                return ComputeTotp(hashAlgorithm, currentTimeStep, modifier);
-            }
-#endif
-        }
-
-        public static bool ValidateCode(byte[] securityToken, int code, string modifier = null)
+        using (var hashAlgorithm = new HMACSHA1(securityToken))
         {
-            if (securityToken == null)
-            {
-                throw new ArgumentNullException(nameof(securityToken));
-            }
+            return ComputeTotp(hashAlgorithm, currentTimeStep, modifierBytes);
+        }
+#endif
+    }
 
-            // Allow a variance of no greater than 9 minutes in either direction
-            var currentTimeStep = GetCurrentTimeStepNumber();
+    public static bool ValidateCode(byte[] securityToken, int code, string? modifier = null)
+    {
+        ArgumentNullThrowHelper.ThrowIfNull(securityToken);
+
+        // Allow a variance of no greater than 9 minutes in either direction
+        var currentTimeStep = GetCurrentTimeStepNumber();
 
 #if !NET6_0_OR_GREATER
-            using (var hashAlgorithm = new HMACSHA1(securityToken))
+        using (var hashAlgorithm = new HMACSHA1(securityToken))
 #endif
+        {
+            var modifierBytes = modifier is not null ? _encoding.GetBytes(modifier) : null;
+            for (var i = -2; i <= 2; i++)
             {
-                for (var i = -2; i <= 2; i++)
-                {
 #if NET6_0_OR_GREATER
-                    var computedTotp = ComputeTotp(securityToken, (ulong)((long)currentTimeStep + i), modifier);
+                var computedTotp = ComputeTotp(securityToken, (ulong)((long)currentTimeStep + i), modifierBytes);
 #else
-                    var computedTotp = ComputeTotp(hashAlgorithm, (ulong)((long)currentTimeStep + i), modifier);
+                var computedTotp = ComputeTotp(hashAlgorithm, (ulong)((long)currentTimeStep + i), modifierBytes);
 #endif
-                    if (computedTotp == code)
-                    {
-                        return true;
-                    }
+                if (computedTotp == code)
+                {
+                    return true;
                 }
             }
-
-            // No match
-            return false;
         }
+
+        // No match
+        return false;
     }
 }

@@ -5,35 +5,28 @@ using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Xunit.Abstractions;
 
-namespace Microsoft.AspNetCore.BrowserTesting
+namespace Microsoft.AspNetCore.BrowserTesting;
+
+internal sealed class BrowserTestOutputLogger : ITestOutputHelper
 {
-    internal class BrowserTestOutputLogger : ITestOutputHelper
+    private readonly ILogger _logger;
+
+    public BrowserTestOutputLogger(ILogger logger)
     {
-        private readonly ILogger _logger;
+        ArgumentNullException.ThrowIfNull(logger);
 
-        public BrowserTestOutputLogger(ILogger logger)
-        {
-            if (logger is null)
-            {
-                throw new ArgumentNullException(nameof(logger));
-            }
+        _logger = logger;
+    }
 
-            _logger = logger;
-        }
+    public void WriteLine(string message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
 
-        public void WriteLine(string message)
-        {
-            if (message is null)
-            {
-                throw new ArgumentNullException(nameof(message));
-            }
+        _logger.LogInformation(message);
+    }
 
-            _logger.LogInformation(message);
-        }
-
-        public void WriteLine(string format, params object[] args)
-        {
-            _logger.LogInformation(string.Format(CultureInfo.InvariantCulture, format, args));
-        }
+    public void WriteLine(string format, params object[] args)
+    {
+        _logger.LogInformation(string.Format(CultureInfo.InvariantCulture, format, args));
     }
 }

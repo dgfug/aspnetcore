@@ -4,107 +4,116 @@
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Threading.Tasks;
-using Xunit;
+using System.Reflection;
+using Microsoft.AspNetCore.InternalTesting;
+using Xunit.Abstractions;
 
-namespace Microsoft.AspNetCore.Mvc.FunctionalTests
+namespace Microsoft.AspNetCore.Mvc.FunctionalTests;
+
+public class OutputFormatterTest : LoggedTest
 {
-    public class OutputFormatterTest : IClassFixture<MvcTestFixture<BasicWebSite.StartupWithoutEndpointRouting>>
+    protected override void Initialize(TestContext context, MethodInfo methodInfo, object[] testMethodArguments, ITestOutputHelper testOutputHelper)
     {
-        public OutputFormatterTest(MvcTestFixture<BasicWebSite.StartupWithoutEndpointRouting> fixture)
-        {
-            Client = fixture.CreateDefaultClient();
-        }
+        base.Initialize(context, methodInfo, testMethodArguments, testOutputHelper);
+        Factory = new MvcTestFixture<BasicWebSite.StartupWithoutEndpointRouting>(LoggerFactory);
+        Client = Factory.CreateDefaultClient();
+    }
 
-        public HttpClient Client { get; }
+    public override void Dispose()
+    {
+        Factory.Dispose();
+        base.Dispose();
+    }
 
-        [Theory]
-        [InlineData("ReturnTaskOfString")]
-        [InlineData("ReturnTaskOfObject_StringValue")]
-        [InlineData("ReturnString")]
-        [InlineData("ReturnObject_StringValue")]
-        public async Task StringOutputFormatter_ForStringValues_GetsSelectedReturnsTextPlainContentType(string actionName)
-        {
-            // Arrange
-            var expectedContentType = MediaTypeHeaderValue.Parse("text/plain;charset=utf-8");
-            var expectedBody = actionName;
+    public MvcTestFixture<BasicWebSite.StartupWithoutEndpointRouting> Factory { get; private set; }
+    public HttpClient Client { get; private set; }
 
-            // Act
-            var response = await Client.GetAsync("http://localhost/TextPlain/" + actionName);
+    [Theory]
+    [InlineData("ReturnTaskOfString")]
+    [InlineData("ReturnTaskOfObject_StringValue")]
+    [InlineData("ReturnString")]
+    [InlineData("ReturnObject_StringValue")]
+    public async Task StringOutputFormatter_ForStringValues_GetsSelectedReturnsTextPlainContentType(string actionName)
+    {
+        // Arrange
+        var expectedContentType = MediaTypeHeaderValue.Parse("text/plain;charset=utf-8");
+        var expectedBody = actionName;
 
-            // Assert
-            Assert.Equal(expectedContentType, response.Content.Headers.ContentType);
-            var body = await response.Content.ReadAsStringAsync();
-            Assert.Equal(expectedBody, body);
-        }
+        // Act
+        var response = await Client.GetAsync("http://localhost/TextPlain/" + actionName);
 
-        [Theory]
-        [InlineData("ReturnTaskOfObject_ObjectValue")]
-        [InlineData("ReturnObject_ObjectValue")]
-        public async Task JsonOutputFormatter_ForNonStringValue_GetsSelected(string actionName)
-        {
-            // Arrange
-            var expectedContentType = MediaTypeHeaderValue.Parse("application/json;charset=utf-8");
+        // Assert
+        Assert.Equal(expectedContentType, response.Content.Headers.ContentType);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Equal(expectedBody, body);
+    }
 
-            // Act
-            var response = await Client.GetAsync("http://localhost/TextPlain/" + actionName);
+    [Theory]
+    [InlineData("ReturnTaskOfObject_ObjectValue")]
+    [InlineData("ReturnObject_ObjectValue")]
+    public async Task JsonOutputFormatter_ForNonStringValue_GetsSelected(string actionName)
+    {
+        // Arrange
+        var expectedContentType = MediaTypeHeaderValue.Parse("application/json;charset=utf-8");
 
-            // Assert
-            Assert.Equal(expectedContentType, response.Content.Headers.ContentType);
-        }
+        // Act
+        var response = await Client.GetAsync("http://localhost/TextPlain/" + actionName);
 
-        [Theory]
-        [InlineData("ReturnTask")]
-        [InlineData("ReturnVoid")]
-        public async Task NoContentFormatter_ForVoidAndTaskReturnType_DoesNotRun(string actionName)
-        {
-            // Arrange & Act
-            var response = await Client.GetAsync("http://localhost/NoContent/" + actionName);
+        // Assert
+        Assert.Equal(expectedContentType, response.Content.Headers.ContentType);
+    }
 
-            // Assert
-            Assert.Null(response.Content.Headers.ContentType);
-            var body = await response.Content.ReadAsStringAsync();
-            // Response body is empty instead of null.
-            Assert.Empty(body);
-            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-            Assert.Equal(0, response.Content.Headers.ContentLength);
-        }
+    [Theory]
+    [InlineData("ReturnTask")]
+    [InlineData("ReturnVoid")]
+    public async Task NoContentFormatter_ForVoidAndTaskReturnType_DoesNotRun(string actionName)
+    {
+        // Arrange & Act
+        var response = await Client.GetAsync("http://localhost/NoContent/" + actionName);
 
-        [Theory]
-        [InlineData("ReturnTaskOfString_NullValue")]
-        [InlineData("ReturnTaskOfObject_NullValue")]
-        [InlineData("ReturnObject_NullValue")]
-        public async Task NoContentFormatter_ForNullValue_ByDefault_GetsSelectedAndWritesResponse(string actionName)
-        {
-            // Arrange & Act
-            var response = await Client.GetAsync("http://localhost/NoContent/" + actionName);
+        // Assert
+        Assert.Null(response.Content.Headers.ContentType);
+        var body = await response.Content.ReadAsStringAsync();
+        // Response body is empty instead of null.
+        Assert.Empty(body);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(0, response.Content.Headers.ContentLength);
+    }
 
-            // Assert
-            Assert.Null(response.Content.Headers.ContentType);
-            var body = await response.Content.ReadAsStringAsync();
-            // Response body is empty instead of null.
-            Assert.Empty(body);
-            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
-            Assert.Equal(0, response.Content.Headers.ContentLength);
-        }
+    [Theory]
+    [InlineData("ReturnTaskOfString_NullValue")]
+    [InlineData("ReturnTaskOfObject_NullValue")]
+    [InlineData("ReturnObject_NullValue")]
+    public async Task NoContentFormatter_ForNullValue_ByDefault_GetsSelectedAndWritesResponse(string actionName)
+    {
+        // Arrange & Act
+        var response = await Client.GetAsync("http://localhost/NoContent/" + actionName);
 
-        [Theory]
-        [InlineData("ReturnTaskOfString_NullValue")]
-        [InlineData("ReturnTaskOfObject_NullValue")]
-        [InlineData("ReturnObject_NullValue")]
-        public async Task
-            NoContentFormatter_ForNullValue_AndTreatNullAsNoContentFlagSetToFalse_DoesNotGetSelected(string actionName)
-        {
-            // Arrange & Act
-            var response = await Client.GetAsync("http://localhost/NoContentDoNotTreatNullValueAsNoContent/" +
-                                                 actionName);
+        // Assert
+        Assert.Null(response.Content.Headers.ContentType);
+        var body = await response.Content.ReadAsStringAsync();
+        // Response body is empty instead of null.
+        Assert.Empty(body);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(0, response.Content.Headers.ContentLength);
+    }
 
-            // Assert
-            Assert.Null(response.Content.Headers.ContentType);
-            var body = await response.Content.ReadAsStringAsync();
-            // Response body is empty instead of null.
-            Assert.Empty(body);
-            Assert.Equal(HttpStatusCode.NotAcceptable, response.StatusCode);
-        }
+    [Theory]
+    [InlineData("ReturnTaskOfString_NullValue")]
+    [InlineData("ReturnTaskOfObject_NullValue")]
+    [InlineData("ReturnObject_NullValue")]
+    public async Task
+        NoContentFormatter_ForNullValue_AndTreatNullAsNoContentFlagSetToFalse_DoesNotGetSelected(string actionName)
+    {
+        // Arrange & Act
+        var response = await Client.GetAsync("http://localhost/NoContentDoNotTreatNullValueAsNoContent/" +
+                                             actionName);
+
+        // Assert
+        Assert.Null(response.Content.Headers.ContentType);
+        var body = await response.Content.ReadAsStringAsync();
+        // Response body is empty instead of null.
+        Assert.Empty(body);
+        Assert.Equal(HttpStatusCode.NotAcceptable, response.StatusCode);
     }
 }

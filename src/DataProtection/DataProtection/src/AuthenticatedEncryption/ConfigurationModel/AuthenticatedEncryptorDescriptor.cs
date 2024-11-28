@@ -3,63 +3,56 @@
 
 using System;
 using System.Xml.Linq;
+using Microsoft.AspNetCore.Shared;
 
-namespace Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel
+namespace Microsoft.AspNetCore.DataProtection.AuthenticatedEncryption.ConfigurationModel;
+
+/// <summary>
+/// A descriptor which can create an authenticated encryption system based upon the
+/// configuration provided by an <see cref="AuthenticatedEncryptorConfiguration"/> object.
+/// </summary>
+public sealed class AuthenticatedEncryptorDescriptor : IAuthenticatedEncryptorDescriptor
 {
     /// <summary>
-    /// A descriptor which can create an authenticated encryption system based upon the
-    /// configuration provided by an <see cref="AuthenticatedEncryptorConfiguration"/> object.
+    /// Initializes a new instance of <see cref="AuthenticatedEncryptorDescriptor"/>.
     /// </summary>
-    public sealed class AuthenticatedEncryptorDescriptor : IAuthenticatedEncryptorDescriptor
+    /// <param name="configuration">The <see cref="AuthenticatedEncryptorDescriptor"/>.</param>
+    /// <param name="masterKey">The master key.</param>
+    public AuthenticatedEncryptorDescriptor(AuthenticatedEncryptorConfiguration configuration, ISecret masterKey)
     {
-        /// <summary>
-        /// Initializes a new instance of <see cref="AuthenticatedEncryptorDescriptor"/>.
-        /// </summary>
-        /// <param name="configuration">The <see cref="AuthenticatedEncryptorDescriptor"/>.</param>
-        /// <param name="masterKey">The master key.</param>
-        public AuthenticatedEncryptorDescriptor(AuthenticatedEncryptorConfiguration configuration, ISecret masterKey)
-        {
-            if (configuration == null)
-            {
-                throw new ArgumentNullException(nameof(configuration));
-            }
+        ArgumentNullThrowHelper.ThrowIfNull(configuration);
+        ArgumentNullThrowHelper.ThrowIfNull(masterKey);
 
-            if (masterKey == null)
-            {
-                throw new ArgumentNullException(nameof(masterKey));
-            }
+        Configuration = configuration;
+        MasterKey = masterKey;
+    }
 
-            Configuration = configuration;
-            MasterKey = masterKey;
-        }
+    internal ISecret MasterKey { get; }
 
-        internal ISecret MasterKey { get; }
+    internal AuthenticatedEncryptorConfiguration Configuration { get; }
 
-        internal AuthenticatedEncryptorConfiguration Configuration { get; }
+    /// <inheritdoc/>
+    public XmlSerializedDescriptorInfo ExportToXml()
+    {
+        // <descriptor>
+        //   <encryption algorithm="..." />
+        //   <validation algorithm="..." /> <!-- only if not GCM -->
+        //   <masterKey requiresEncryption="true">...</masterKey>
+        // </descriptor>
 
-        /// <inheritdoc/>
-        public XmlSerializedDescriptorInfo ExportToXml()
-        {
-            // <descriptor>
-            //   <encryption algorithm="..." />
-            //   <validation algorithm="..." /> <!-- only if not GCM -->
-            //   <masterKey requiresEncryption="true">...</masterKey>
-            // </descriptor>
+        var encryptionElement = new XElement("encryption",
+            new XAttribute("algorithm", Configuration.EncryptionAlgorithm));
 
-            var encryptionElement = new XElement("encryption",
-                new XAttribute("algorithm", Configuration.EncryptionAlgorithm));
+        var validationElement = (AuthenticatedEncryptorFactory.IsGcmAlgorithm(Configuration.EncryptionAlgorithm))
+            ? (object)new XComment(" AES-GCM includes a 128-bit authentication tag, no extra validation algorithm required. ")
+            : (object)new XElement("validation",
+                new XAttribute("algorithm", Configuration.ValidationAlgorithm));
 
-            var validationElement = (AuthenticatedEncryptorFactory.IsGcmAlgorithm(Configuration.EncryptionAlgorithm))
-                ? (object)new XComment(" AES-GCM includes a 128-bit authentication tag, no extra validation algorithm required. ")
-                : (object)new XElement("validation",
-                    new XAttribute("algorithm", Configuration.ValidationAlgorithm));
+        var outerElement = new XElement("descriptor",
+            encryptionElement,
+            validationElement,
+            MasterKey.ToMasterKeyElement());
 
-            var outerElement = new XElement("descriptor",
-                encryptionElement,
-                validationElement,
-                MasterKey.ToMasterKeyElement());
-
-            return new XmlSerializedDescriptorInfo(outerElement, typeof(AuthenticatedEncryptorDescriptorDeserializer));
-        }
+        return new XmlSerializedDescriptorInfo(outerElement, typeof(AuthenticatedEncryptorDescriptorDeserializer));
     }
 }

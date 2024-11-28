@@ -12,22 +12,22 @@ using BenchmarkDotNet.Toolchains.CsProj;
 using BenchmarkDotNet.Toolchains.DotNetCli;
 using BenchmarkDotNet.Validators;
 
-namespace BenchmarkDotNet.Attributes
+namespace BenchmarkDotNet.Attributes;
+
+internal sealed class DefaultCoreConfig : ManualConfig
 {
-    internal class DefaultCoreConfig : ManualConfig
+    public DefaultCoreConfig()
     {
-        public DefaultCoreConfig()
-        {
-            AddLogger(ConsoleLogger.Default);
-            AddExporter(MarkdownExporter.GitHub);
+        AddLogger(ConsoleLogger.Default);
+        AddExporter(MarkdownExporter.GitHub);
 
-            AddDiagnoser(MemoryDiagnoser.Default);
-            AddColumn(StatisticColumn.OperationsPerSecond);
-            AddColumnProvider(DefaultColumnProviders.Instance);
+        AddDiagnoser(MemoryDiagnoser.Default);
+        AddColumn(StatisticColumn.OperationsPerSecond);
+        AddColumnProvider(DefaultColumnProviders.Instance);
 
-            AddValidator(JitOptimizationsValidator.FailOnError);
+        AddValidator(JitOptimizationsValidator.FailOnError);
 
-            AddJob(Job.Default
+        AddJob(Job.Default
 #if NETCOREAPP2_1
                 .WithToolchain(CsProjCoreToolchain.From(NetCoreAppSettings.NetCoreApp21))
 #elif NETCOREAPP3_0
@@ -40,11 +40,16 @@ namespace BenchmarkDotNet.Attributes
                 .WithToolchain(CsProjCoreToolchain.From(new NetCoreAppSettings("net6.0", null, ".NET Core 6.0")))
 #elif NET7_0
                 .WithToolchain(CsProjCoreToolchain.From(new NetCoreAppSettings("net7.0", null, ".NET Core 7.0")))
+#elif NET8_0
+                .WithToolchain(CsProjCoreToolchain.From(new NetCoreAppSettings("net8.0", null, ".NET Core 8.0")))
+#elif NET9_0
+                .WithToolchain(CsProjCoreToolchain.From(new NetCoreAppSettings("net9.0", null, ".NET Core 9.0")))
+#elif NET10_0
+                .WithToolchain(CsProjCoreToolchain.From(new NetCoreAppSettings("net10.0", null, ".NET Core 10.0")))
 #else
 #error Target frameworks need to be updated.
 #endif
                 .WithGcMode(new GcMode { Server = true })
-                .WithStrategy(RunStrategy.Throughput));
-        }
+            .WithStrategy(RunStrategy.Throughput));
     }
 }

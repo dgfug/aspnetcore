@@ -1,32 +1,35 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
 
-namespace Microsoft.AspNetCore.Routing.Patterns
+namespace Microsoft.AspNetCore.Routing.Patterns;
+
+/// <summary>
+/// Represents a literal text part of a route pattern. Instances of <see cref="RoutePatternLiteralPart"/>
+/// are immutable.
+/// </summary>
+[DebuggerDisplay("{DebuggerToString()}")]
+#if !COMPONENTS
+public sealed class RoutePatternLiteralPart : RoutePatternPart
+#else
+internal sealed class RoutePatternLiteralPart : RoutePatternPart
+#endif
 {
-    /// <summary>
-    /// Resprents a literal text part of a route pattern. Instances of <see cref="RoutePatternLiteralPart"/>
-    /// are immutable.
-    /// </summary>
-    [DebuggerDisplay("{DebuggerToString()}")]
-    public sealed class RoutePatternLiteralPart : RoutePatternPart
+    internal RoutePatternLiteralPart(string content)
+        : base(RoutePatternPartKind.Literal)
     {
-        internal RoutePatternLiteralPart(string content)
-            : base(RoutePatternPartKind.Literal)
-        {
-            Debug.Assert(!string.IsNullOrEmpty(content));
-            Content = content;
-        }
+        Debug.Assert(!string.IsNullOrEmpty(content));
+        Content = content;
+    }
 
-        /// <summary>
-        /// Gets the text content.
-        /// </summary>
-        public string Content { get; }
+    /// <summary>
+    /// Gets the text content.
+    /// </summary>
+    public string Content { get; }
 
-        internal override string DebuggerToString()
-        {
-            return Content;
-        }
+    internal override string DebuggerToString()
+    {
+        return Content;
     }
 }

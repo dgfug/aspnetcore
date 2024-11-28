@@ -1,88 +1,92 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
-using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Reflection;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 
-namespace Microsoft.AspNetCore.Hosting
+namespace Microsoft.AspNetCore.Hosting;
+
+internal sealed class WebHostOptions
 {
-    internal class WebHostOptions
+    public WebHostOptions(IConfiguration primaryConfiguration, IConfiguration? fallbackConfiguration = null, IHostEnvironment? environment = null)
     {
-        public WebHostOptions(IConfiguration configuration, string applicationNameFallback)
+        ArgumentNullException.ThrowIfNull(primaryConfiguration);
+
+        string? GetConfig(string key) => primaryConfiguration[key] ?? fallbackConfiguration?[key];
+
+        ApplicationName = environment?.ApplicationName ?? GetConfig(WebHostDefaults.ApplicationKey) ?? Assembly.GetEntryAssembly()?.GetName().Name ?? string.Empty;
+        StartupAssembly = GetConfig(WebHostDefaults.StartupAssemblyKey);
+        DetailedErrors = WebHostUtilities.ParseBool(GetConfig(WebHostDefaults.DetailedErrorsKey));
+        CaptureStartupErrors = WebHostUtilities.ParseBool(GetConfig(WebHostDefaults.CaptureStartupErrorsKey));
+        Environment = environment?.EnvironmentName ?? GetConfig(WebHostDefaults.EnvironmentKey);
+        WebRoot = GetConfig(WebHostDefaults.WebRootKey);
+        ContentRootPath = environment?.ContentRootPath ?? GetConfig(WebHostDefaults.ContentRootKey);
+        PreventHostingStartup = WebHostUtilities.ParseBool(GetConfig(WebHostDefaults.PreventHostingStartupKey));
+        SuppressStatusMessages = WebHostUtilities.ParseBool(GetConfig(WebHostDefaults.SuppressStatusMessagesKey));
+        ServerUrls = GetConfig(WebHostDefaults.ServerUrlsKey);
+        PreferHostingUrls = WebHostUtilities.ParseBool(GetConfig(WebHostDefaults.PreferHostingUrlsKey));
+
+        // Search the primary assembly and configured assemblies.
+        HostingStartupAssemblies = Split(ApplicationName, GetConfig(WebHostDefaults.HostingStartupAssembliesKey));
+        HostingStartupExcludeAssemblies = Split(GetConfig(WebHostDefaults.HostingStartupExcludeAssembliesKey));
+
+        var timeout = GetConfig(WebHostDefaults.ShutdownTimeoutKey);
+        if (!string.IsNullOrEmpty(timeout)
+            && int.TryParse(timeout, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds))
         {
-            if (configuration == null)
-            {
-                throw new ArgumentNullException(nameof(configuration));
-            }
+            ShutdownTimeout = TimeSpan.FromSeconds(seconds);
+        }
+    }
 
-            ApplicationName = configuration[WebHostDefaults.ApplicationKey] ?? applicationNameFallback;
-            StartupAssembly = configuration[WebHostDefaults.StartupAssemblyKey];
-            DetailedErrors = WebHostUtilities.ParseBool(configuration, WebHostDefaults.DetailedErrorsKey);
-            CaptureStartupErrors = WebHostUtilities.ParseBool(configuration, WebHostDefaults.CaptureStartupErrorsKey);
-            Environment = configuration[WebHostDefaults.EnvironmentKey];
-            WebRoot = configuration[WebHostDefaults.WebRootKey];
-            ContentRootPath = configuration[WebHostDefaults.ContentRootKey];
-            PreventHostingStartup = WebHostUtilities.ParseBool(configuration, WebHostDefaults.PreventHostingStartupKey);
-            SuppressStatusMessages = WebHostUtilities.ParseBool(configuration, WebHostDefaults.SuppressStatusMessagesKey);
+    public string ApplicationName { get; }
 
-            // Search the primary assembly and configured assemblies.
-            HostingStartupAssemblies = Split(ApplicationName, configuration[WebHostDefaults.HostingStartupAssembliesKey]);
-            HostingStartupExcludeAssemblies = Split(configuration[WebHostDefaults.HostingStartupExcludeAssembliesKey]);
+    public bool PreventHostingStartup { get; }
 
-            var timeout = configuration[WebHostDefaults.ShutdownTimeoutKey];
-            if (!string.IsNullOrEmpty(timeout)
-                && int.TryParse(timeout, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds))
-            {
-                ShutdownTimeout = TimeSpan.FromSeconds(seconds);
-            }
+    public bool SuppressStatusMessages { get; }
+
+    public IReadOnlyList<string> HostingStartupAssemblies { get; }
+
+    public IReadOnlyList<string> HostingStartupExcludeAssemblies { get; }
+
+    public bool DetailedErrors { get; }
+
+    public bool CaptureStartupErrors { get; }
+
+    public string? Environment { get; }
+
+    public string? StartupAssembly { get; }
+
+    public string? WebRoot { get; }
+
+    public string? ContentRootPath { get; }
+
+    public TimeSpan ShutdownTimeout { get; } = TimeSpan.FromSeconds(30);
+
+    public string? ServerUrls { get; }
+
+    public bool PreferHostingUrls { get; }
+
+    public IEnumerable<string> GetFinalHostingStartupAssemblies()
+    {
+        return HostingStartupAssemblies.Except(HostingStartupExcludeAssemblies, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static IReadOnlyList<string> Split(string? value)
+    {
+        return value?.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            ?? Array.Empty<string>();
+    }
+
+    private static IReadOnlyList<string> Split(string applicationName, string? environment)
+    {
+        if (string.IsNullOrEmpty(environment))
+        {
+            return new[] { applicationName };
         }
 
-        public string ApplicationName { get; set; }
-
-        public bool PreventHostingStartup { get; set; }
-
-        public bool SuppressStatusMessages { get; set; }
-
-        public IReadOnlyList<string> HostingStartupAssemblies { get; set; }
-
-        public IReadOnlyList<string> HostingStartupExcludeAssemblies { get; set; }
-
-        public bool DetailedErrors { get; set; }
-
-        public bool CaptureStartupErrors { get; set; }
-
-        public string? Environment { get; set; }
-
-        public string? StartupAssembly { get; set; }
-
-        public string? WebRoot { get; set; }
-
-        public string? ContentRootPath { get; set; }
-
-        public TimeSpan ShutdownTimeout { get; set; } = TimeSpan.FromSeconds(5);
-
-        public IEnumerable<string> GetFinalHostingStartupAssemblies()
-        {
-            return HostingStartupAssemblies.Except(HostingStartupExcludeAssemblies, StringComparer.OrdinalIgnoreCase);
-        }
-
-        private static IReadOnlyList<string> Split(string? value)
-        {
-            return value?.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-                ?? Array.Empty<string>();
-        }
-
-        private static IReadOnlyList<string> Split(string applicationName, string? environment)
-        {
-            if (string.IsNullOrEmpty(environment))
-            {
-                return new[] { applicationName };
-            }
-
-            return Split($"{applicationName};{environment}");
-        }
+        return Split($"{applicationName};{environment}");
     }
 }

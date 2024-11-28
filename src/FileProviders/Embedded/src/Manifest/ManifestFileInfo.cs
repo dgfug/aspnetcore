@@ -4,77 +4,70 @@
 using System;
 using System.IO;
 using System.Reflection;
+using Microsoft.AspNetCore.Shared;
 
-namespace Microsoft.Extensions.FileProviders.Embedded.Manifest
+namespace Microsoft.Extensions.FileProviders.Embedded.Manifest;
+
+internal sealed class ManifestFileInfo : IFileInfo
 {
-    internal class ManifestFileInfo : IFileInfo
+    private long? _length;
+
+    public ManifestFileInfo(Assembly assembly, ManifestFile file, DateTimeOffset lastModified)
     {
-        private long? _length;
+        ArgumentNullThrowHelper.ThrowIfNull(assembly);
+        ArgumentNullThrowHelper.ThrowIfNull(file);
 
-        public ManifestFileInfo(Assembly assembly, ManifestFile file, DateTimeOffset lastModified)
+        Assembly = assembly;
+        ManifestFile = file;
+        LastModified = lastModified;
+    }
+
+    public Assembly Assembly { get; }
+
+    public ManifestFile ManifestFile { get; }
+
+    public bool Exists => true;
+
+    public long Length => EnsureLength();
+
+    public string? PhysicalPath => null;
+
+    public string Name => ManifestFile.Name;
+
+    public DateTimeOffset LastModified { get; }
+
+    public bool IsDirectory => false;
+
+    private long EnsureLength()
+    {
+        if (_length == null)
         {
-            if (assembly == null)
-            {
-                throw new ArgumentNullException(nameof(assembly));
-            }
-
-            if (file == null)
-            {
-                throw new ArgumentNullException(nameof(file));
-            }
-
-            Assembly = assembly;
-            ManifestFile = file;
-            LastModified = lastModified;
+            using var stream = GetManifestResourceStream();
+            _length = stream.Length;
         }
 
-        public Assembly Assembly { get; }
+        return _length.Value;
+    }
 
-        public ManifestFile ManifestFile { get; }
-
-        public bool Exists => true;
-
-        public long Length => EnsureLength();
-
-        public string? PhysicalPath => null;
-
-        public string Name => ManifestFile.Name;
-
-        public DateTimeOffset LastModified { get; }
-
-        public bool IsDirectory => false;
-
-        private long EnsureLength()
+    public Stream CreateReadStream()
+    {
+        var stream = GetManifestResourceStream();
+        if (!_length.HasValue)
         {
-            if (_length == null)
-            {
-                using var stream = GetManifestResourceStream();
-                _length = stream.Length;
-            }
-
-            return _length.Value;
+            _length = stream.Length;
         }
 
-        public Stream CreateReadStream()
-        {
-            var stream = GetManifestResourceStream();
-            if (!_length.HasValue)
-            {
-                _length = stream.Length;
-            }
+        return stream;
+    }
 
-            return stream;
+    private Stream GetManifestResourceStream()
+    {
+        var stream = Assembly.GetManifestResourceStream(ManifestFile.ResourcePath);
+        if (stream == null)
+        {
+            throw new InvalidOperationException($"Couldn't get resource at '{ManifestFile.ResourcePath}'.");
         }
 
-        private Stream GetManifestResourceStream()
-        {
-            var stream = Assembly.GetManifestResourceStream(ManifestFile.ResourcePath);
-            if (stream == null)
-            {
-                throw new InvalidOperationException($"Couldn't get resource at '{ManifestFile.ResourcePath}'.");
-            }
-
-            return stream;
-        }
+        return stream;
     }
 }

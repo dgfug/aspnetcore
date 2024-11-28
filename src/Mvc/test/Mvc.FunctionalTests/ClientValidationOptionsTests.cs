@@ -1,34 +1,43 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Threading.Tasks;
+using System.Reflection;
 using Microsoft.AspNetCore.Hosting;
-using Xunit;
+using Microsoft.AspNetCore.InternalTesting;
+using Xunit.Abstractions;
 
-namespace Microsoft.AspNetCore.Mvc.FunctionalTests
+namespace Microsoft.AspNetCore.Mvc.FunctionalTests;
+
+public class ClientValidationOptionsTests : LoggedTest
 {
-    public class ClientValidationOptionsTests : IClassFixture<MvcTestFixture<RazorPagesWebSite.Startup>>
+    protected override void Initialize(TestContext context, MethodInfo methodInfo, object[] testMethodArguments, ITestOutputHelper testOutputHelper)
     {
-        public ClientValidationOptionsTests(MvcTestFixture<RazorPagesWebSite.Startup> fixture) =>
-            Fixture = fixture;
+        base.Initialize(context, methodInfo, testMethodArguments, testOutputHelper);
+        Factory = new MvcTestFixture<RazorPagesWebSite.Startup>(LoggerFactory);
+    }
 
-        public MvcTestFixture<RazorPagesWebSite.Startup> Fixture { get; }
+    public override void Dispose()
+    {
+        Factory.Dispose();
+        base.Dispose();
+    }
 
-        [Fact]
-        public async Task DisablingClientValidation_DisablesItForPagesAndViews()
-        {
-            // Arrange
-            var client = Fixture
-                .WithWebHostBuilder(whb => whb.UseStartup<RazorPagesWebSite.StartupWithClientValidationDisabled>())
-                .CreateClient();
+    public MvcTestFixture<RazorPagesWebSite.Startup> Factory { get; private set; }
 
-            // Act
-            var view = await client.GetStringAsync("Controller/ClientValidationDisabled");
-            var page = await client.GetStringAsync("ClientvalidationDisabled");
+    [Fact]
+    public async Task DisablingClientValidation_DisablesItForPagesAndViews()
+    {
+        // Arrange
+        var client = Factory
+            .WithWebHostBuilder(whb => whb.UseStartup<RazorPagesWebSite.StartupWithClientValidationDisabled>())
+            .CreateClient();
 
-            // Assert
-            Assert.Equal("ClientValidationDisabled", view);
-            Assert.Equal("ClientValidationDisabled", page);
-        }
+        // Act
+        var view = await client.GetStringAsync("Controller/ClientValidationDisabled");
+        var page = await client.GetStringAsync("ClientvalidationDisabled");
+
+        // Assert
+        Assert.Equal("ClientValidationDisabled", view);
+        Assert.Equal("ClientValidationDisabled", page);
     }
 }

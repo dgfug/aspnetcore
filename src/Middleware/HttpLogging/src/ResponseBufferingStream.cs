@@ -1,177 +1,194 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using System.Buffers;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
 using System.IO.Pipelines;
-using System.Runtime.CompilerServices;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Logging;
-using Microsoft.Net.Http.Headers;
-using static Microsoft.AspNetCore.HttpLogging.MediaTypeOptions;
 
-namespace Microsoft.AspNetCore.HttpLogging
+namespace Microsoft.AspNetCore.HttpLogging;
+
+internal sealed class ResponseBufferingStream : BufferingStream, IHttpResponseBodyFeature
 {
-    /// <summary>
-    /// Stream that buffers reads
-    /// </summary>
-    internal sealed class ResponseBufferingStream : BufferingStream, IHttpResponseBodyFeature
+    private readonly IHttpResponseBodyFeature _innerBodyFeature;
+    private int _limit;
+    private PipeWriter? _pipeAdapter;
+
+    private readonly HttpLoggingInterceptorContext _logContext;
+    private readonly HttpLoggingOptions _options;
+    private readonly IHttpLoggingInterceptor[] _interceptors;
+    private bool _logBody;
+    private Encoding? _encoding;
+
+    private static readonly StreamPipeWriterOptions _pipeWriterOptions = new StreamPipeWriterOptions(leaveOpen: true);
+
+    internal ResponseBufferingStream(IHttpResponseBodyFeature innerBodyFeature,
+        ILogger logger,
+        HttpLoggingInterceptorContext logContext,
+        HttpLoggingOptions options,
+        IHttpLoggingInterceptor[] interceptors)
+        : base(innerBodyFeature.Stream, logger)
     {
-        private readonly IHttpResponseBodyFeature _innerBodyFeature;
-        private readonly int _limit;
-        private PipeWriter? _pipeAdapter;
+        _innerBodyFeature = innerBodyFeature;
+        _innerStream = innerBodyFeature.Stream;
+        _logContext = logContext;
+        _options = options;
+        _interceptors = interceptors;
+    }
 
-        private readonly HttpContext _context;
-        private readonly List<MediaTypeState> _encodings;
-        private readonly HttpLoggingOptions _options;
-        private Encoding? _encoding;
+    public bool HeadersWritten { get; private set; }
 
-        private static readonly StreamPipeWriterOptions _pipeWriterOptions = new StreamPipeWriterOptions(leaveOpen: true);
+    public Stream Stream => this;
 
-        internal ResponseBufferingStream(IHttpResponseBodyFeature innerBodyFeature,
-            int limit,
-            ILogger logger,
-            HttpContext context,
-            List<MediaTypeState> encodings,
-            HttpLoggingOptions options)
-            : base(innerBodyFeature.Stream, logger)
+    public PipeWriter Writer => _pipeAdapter ??= PipeWriter.Create(Stream, _pipeWriterOptions);
+
+    public override void Write(byte[] buffer, int offset, int count)
+    {
+        Write(buffer.AsSpan(offset, count));
+    }
+
+    public override IAsyncResult BeginWrite(byte[] buffer, int offset, int count, AsyncCallback? callback, object? state)
+    {
+        return TaskToApm.Begin(WriteAsync(buffer, offset, count), callback, state);
+    }
+
+    public override void EndWrite(IAsyncResult asyncResult)
+    {
+        TaskToApm.End(asyncResult);
+    }
+
+    public override void Write(ReadOnlySpan<byte> span)
+    {
+        OnFirstWriteSync();
+        CommonWrite(span);
+
+        _innerStream.Write(span);
+    }
+
+    public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+    {
+        await WriteAsync(new Memory<byte>(buffer, offset, count), cancellationToken);
+    }
+
+    public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+    {
+        await OnFirstWriteAsync();
+        CommonWrite(buffer.Span);
+
+        await _innerStream.WriteAsync(buffer, cancellationToken);
+    }
+
+    private void CommonWrite(ReadOnlySpan<byte> span)
+    {
+        var remaining = _limit - _bytesBuffered;
+        var innerCount = Math.Min(remaining, span.Length);
+
+        if (_logBody && innerCount > 0)
         {
-            _innerBodyFeature = innerBodyFeature;
-            _innerStream = innerBodyFeature.Stream;
-            _limit = limit;
-            _context = context;
-            _encodings = encodings;
-            _options = options;
-        }
-
-        public bool FirstWrite { get; private set; }
-
-        public Stream Stream => this;
-
-        public PipeWriter Writer => _pipeAdapter ??= PipeWriter.Create(Stream, _pipeWriterOptions);
-
-        public Encoding? Encoding { get => _encoding; }
-
-        public override void Write(byte[] buffer, int offset, int count)
-        {
-            Write(buffer.AsSpan(offset, count));
-        }
-
-        public override IAsyncResult BeginWrite(byte[] buffer, int offset, int count, AsyncCallback? callback, object? state)
-        {
-            return TaskToApm.Begin(WriteAsync(buffer, offset, count), callback, state);
-        }
-
-        public override void EndWrite(IAsyncResult asyncResult)
-        {
-            TaskToApm.End(asyncResult);
-        }
-
-        public override void Write(ReadOnlySpan<byte> span)
-        {
-            var remaining = _limit - _bytesBuffered;
-            var innerCount = Math.Min(remaining, span.Length);
-
-            OnFirstWrite();
-
-            if (innerCount > 0)
+            var slice = span.Slice(0, innerCount);
+            if (slice.TryCopyTo(_tailMemory.Span))
             {
-                if (span.Slice(0, innerCount).TryCopyTo(_tailMemory.Span))
-                {
-                    _tailBytesBuffered += innerCount;
-                    _bytesBuffered += innerCount;
-                    _tailMemory = _tailMemory.Slice(innerCount);
-                }
-                else
-                {
-                    BuffersExtensions.Write(this, span.Slice(0, innerCount));
-                }
+                _tailBytesBuffered += innerCount;
+                _bytesBuffered += innerCount;
+                _tailMemory = _tailMemory.Slice(innerCount);
             }
-
-            _innerStream.Write(span);
-        }
-
-        public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
-        {
-            await WriteAsync(new Memory<byte>(buffer, offset, count), cancellationToken);
-        }
-
-        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            var remaining = _limit - _bytesBuffered;
-            var innerCount = Math.Min(remaining, buffer.Length);
-
-            OnFirstWrite();
-
-            if (innerCount > 0)
+            else
             {
-                if (_tailMemory.Length - innerCount > 0)
-                {
-                    buffer.Slice(0, innerCount).CopyTo(_tailMemory);
-                    _tailBytesBuffered += innerCount;
-                    _bytesBuffered += innerCount;
-                    _tailMemory = _tailMemory.Slice(innerCount);
-                }
-                else
-                {
-                    BuffersExtensions.Write(this, buffer.Span);
-                }
+                BuffersExtensions.Write(this, slice);
             }
-
-            await _innerStream.WriteAsync(buffer, cancellationToken);
         }
+    }
 
-        private void OnFirstWrite()
+    private void OnFirstWriteSync()
+    {
+        if (!HeadersWritten)
         {
-            if (!FirstWrite)
-            {
-                // Log headers as first write occurs (headers locked now)
-                HttpLoggingMiddleware.LogResponseHeaders(_context.Response, _options, _logger);
+            // Log headers as first write occurs (headers locked now)
+            HttpLoggingMiddleware.LogResponseHeadersSync(_logContext, _options, _interceptors, _logger);
+            OnFirstWriteCore();
+        }
+    }
 
-                MediaTypeHelpers.TryGetEncodingForMediaType(_context.Response.ContentType, _encodings, out _encoding);
-                FirstWrite = true;
+    private async ValueTask OnFirstWriteAsync()
+    {
+        if (!HeadersWritten)
+        {
+            // Log headers as first write occurs (headers locked now)
+            await HttpLoggingMiddleware.LogResponseHeadersAsync(_logContext, _options, _interceptors, _logger);
+            OnFirstWriteCore();
+        }
+    }
+
+    private void OnFirstWriteCore()
+    {
+        // The callback in LogResponseHeaders could disable body logging or adjust limits.
+        if (_logContext.LoggingFields.HasFlag(HttpLoggingFields.ResponseBody) && _logContext.ResponseBodyLogLimit > 0)
+        {
+            if (MediaTypeHelpers.TryGetEncodingForMediaType(_logContext.HttpContext.Response.ContentType,
+                _options.MediaTypeOptions.MediaTypeStates, out _encoding))
+            {
+                _logBody = true;
+                _limit = _logContext.ResponseBodyLogLimit;
+            }
+            else
+            {
+                _logger.UnrecognizedMediaType("response");
             }
         }
 
-        public void DisableBuffering()
-        {
-            _innerBodyFeature.DisableBuffering();
-        }
+        HeadersWritten = true;
+    }
 
-        public Task SendFileAsync(string path, long offset, long? count, CancellationToken cancellation)
-        {
-            OnFirstWrite();
-            return _innerBodyFeature.SendFileAsync(path, offset, count, cancellation);
-        }
+    public void DisableBuffering()
+    {
+        _innerBodyFeature.DisableBuffering();
+    }
 
-        public Task StartAsync(CancellationToken token = default)
-        {
-            OnFirstWrite();
-            return _innerBodyFeature.StartAsync(token);
-        }
+    public async Task SendFileAsync(string path, long offset, long? count, CancellationToken cancellation)
+    {
+        await OnFirstWriteAsync();
+        await _innerBodyFeature.SendFileAsync(path, offset, count, cancellation);
+    }
 
-        public async Task CompleteAsync()
-        {
-            await _innerBodyFeature.CompleteAsync();
-        }
+    public async Task StartAsync(CancellationToken token = default)
+    {
+        await OnFirstWriteAsync();
+        await _innerBodyFeature.StartAsync(token);
+    }
 
-        public override void Flush()
-        {
-            OnFirstWrite();
-            base.Flush();
-        }
+    public async Task CompleteAsync()
+    {
+        await OnFirstWriteAsync();
+        await _innerBodyFeature.CompleteAsync();
+    }
 
-        public override Task FlushAsync(CancellationToken cancellationToken)
+    public override void Flush()
+    {
+        OnFirstWriteSync();
+        base.Flush();
+    }
+
+    public override async Task FlushAsync(CancellationToken cancellationToken)
+    {
+        await OnFirstWriteAsync();
+        await base.FlushAsync(cancellationToken);
+    }
+
+    public void LogResponseBody()
+    {
+        if (_logBody)
         {
-            OnFirstWrite();
-            return base.FlushAsync(cancellationToken);
+            var responseBody = GetString(_encoding!);
+            _logger.ResponseBody(responseBody);
+        }
+    }
+
+    public void LogResponseBody(HttpLoggingInterceptorContext logContext)
+    {
+        if (_logBody)
+        {
+            logContext.AddParameter("ResponseBody", GetString(_encoding!));
         }
     }
 }

@@ -4,63 +4,57 @@
 using System;
 using Microsoft.AspNetCore.Cryptography.SafeHandles;
 
-namespace Microsoft.AspNetCore.Cryptography.Cng
+namespace Microsoft.AspNetCore.Cryptography.Cng;
+
+internal static class OSVersionUtil
 {
-    internal static class OSVersionUtil
+    private static readonly OSVersion _osVersion = GetOSVersion();
+
+    private static OSVersion GetOSVersion()
     {
-        private static readonly OSVersion _osVersion = GetOSVersion();
-
-        private static OSVersion GetOSVersion()
+        if (Environment.OSVersion.Platform is not PlatformID.Win32NT)
         {
-            const string BCRYPT_LIB = "bcrypt.dll";
-            SafeLibraryHandle? bcryptLibHandle = null;
-            try
-            {
-                bcryptLibHandle = SafeLibraryHandle.Open(BCRYPT_LIB);
-            }
-            catch
-            {
-                // we'll handle the exceptional case later
-            }
+            // Not running on Win7+.
+            return OSVersion.NotWindows;
+        }
 
-            if (bcryptLibHandle != null)
+        try
+        {
+            // REVIEW: Should we just use the lazy handle instead of disposing?
+            using var bcryptLibHandle = SafeLibraryHandle.Open(UnsafeNativeMethods.BCRYPT_LIB);
+
+            if (bcryptLibHandle.DoesProcExist("BCryptKeyDerivation"))
             {
-                using (bcryptLibHandle)
-                {
-                    if (bcryptLibHandle.DoesProcExist("BCryptKeyDerivation"))
-                    {
-                        // We're running on Win8+.
-                        return OSVersion.Win8OrLater;
-                    }
-                    else
-                    {
-                        // We're running on Win7+.
-                        return OSVersion.Win7OrLater;
-                    }
-                }
+                // We're running on Win8+.
+                return OSVersion.Win8OrLater;
             }
             else
             {
-                // Not running on Win7+.
-                return OSVersion.NotWindows;
+                // We're running on Win7+.
+                return OSVersion.Win7OrLater;
             }
         }
-
-        public static bool IsWindows()
+        catch
         {
-            return (_osVersion >= OSVersion.Win7OrLater);
+            // Not running on Win7+.
+            return OSVersion.NotWindows;
         }
+    }
 
-        public static bool IsWindows8OrLater()
-        {
-            return (_osVersion >= OSVersion.Win8OrLater);
-        }
+    public static bool IsWindows()
+    {
+        return (_osVersion >= OSVersion.Win7OrLater);
+    }
 
-        private enum OSVersion
-        {
-            NotWindows = 0,
-            Win7OrLater = 1,
-            Win8OrLater = 2
-        }
+    public static bool IsWindows8OrLater()
+    {
+        return (_osVersion >= OSVersion.Win8OrLater);
+    }
+
+    private enum OSVersion
+    {
+        NotWindows = 0,
+        Win7OrLater = 1,
+        Win8OrLater = 2
     }
 }

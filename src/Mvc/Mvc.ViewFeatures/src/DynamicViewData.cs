@@ -1,73 +1,74 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
-using System.Collections.Generic;
+using System.Diagnostics;
 using System.Dynamic;
+using System.Linq;
+using Microsoft.AspNetCore.Shared;
 
-namespace Microsoft.AspNetCore.Mvc.ViewFeatures
+namespace Microsoft.AspNetCore.Mvc.ViewFeatures;
+
+[DebuggerDisplay("Count = {ViewData.Count}")]
+[DebuggerTypeProxy(typeof(DynamicViewDataDebugView))]
+internal sealed class DynamicViewData : DynamicObject
 {
-    internal class DynamicViewData : DynamicObject
+    private readonly Func<ViewDataDictionary> _viewDataFunc;
+
+    public DynamicViewData(Func<ViewDataDictionary> viewDataFunc)
     {
-        private readonly Func<ViewDataDictionary> _viewDataFunc;
+        ArgumentNullException.ThrowIfNull(viewDataFunc);
 
-        public DynamicViewData(Func<ViewDataDictionary> viewDataFunc)
+        _viewDataFunc = viewDataFunc;
+    }
+
+    private ViewDataDictionary ViewData
+    {
+        get
         {
-            if (viewDataFunc == null)
+            var viewData = _viewDataFunc();
+            if (viewData == null)
             {
-                throw new ArgumentNullException(nameof(viewDataFunc));
+                throw new InvalidOperationException(Resources.DynamicViewData_ViewDataNull);
             }
 
-            _viewDataFunc = viewDataFunc;
+            return viewData;
         }
+    }
 
-        private ViewDataDictionary ViewData
-        {
-            get
-            {
-                var viewData = _viewDataFunc();
-                if (viewData == null)
-                {
-                    throw new InvalidOperationException(Resources.DynamicViewData_ViewDataNull);
-                }
+    // Implementing this function extends the ViewBag contract, supporting or improving some scenarios. For example
+    // having this method improves the debugging experience as it provides the debugger with the list of all
+    // properties currently defined on the object.
+    public override IEnumerable<string> GetDynamicMemberNames()
+    {
+        return ViewData.Keys;
+    }
 
-                return viewData;
-            }
-        }
+    public override bool TryGetMember(GetMemberBinder binder, out object result)
+    {
+        ArgumentNullException.ThrowIfNull(binder);
 
-        // Implementing this function extends the ViewBag contract, supporting or improving some scenarios. For example
-        // having this method improves the debugging experience as it provides the debugger with the list of all
-        // properties currently defined on the object.
-        public override IEnumerable<string> GetDynamicMemberNames()
-        {
-            return ViewData.Keys;
-        }
+        result = ViewData[binder.Name];
 
-        public override bool TryGetMember(GetMemberBinder binder, out object result)
-        {
-            if (binder == null)
-            {
-                throw new ArgumentNullException(nameof(binder));
-            }
+        // ViewDataDictionary[key] will never throw a KeyNotFoundException.
+        // Similarly, return true so caller does not throw.
+        return true;
+    }
 
-            result = ViewData[binder.Name];
+    public override bool TrySetMember(SetMemberBinder binder, object value)
+    {
+        ArgumentNullException.ThrowIfNull(binder);
 
-            // ViewDataDictionary[key] will never throw a KeyNotFoundException.
-            // Similarly, return true so caller does not throw.
-            return true;
-        }
+        ViewData[binder.Name] = value;
 
-        public override bool TrySetMember(SetMemberBinder binder, object value)
-        {
-            if (binder == null)
-            {
-                throw new ArgumentNullException(nameof(binder));
-            }
+        // Can always add / update a ViewDataDictionary value.
+        return true;
+    }
 
-            ViewData[binder.Name] = value;
+    private sealed class DynamicViewDataDebugView(DynamicViewData dictionary)
+    {
+        private readonly ViewDataDictionary _dictionary = dictionary.ViewData;
 
-            // Can always add / update a ViewDataDictionary value.
-            return true;
-        }
+        [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
+        public DictionaryItemDebugView<string, object>[] Items => _dictionary.Select(pair => new DictionaryItemDebugView<string, object>(pair)).ToArray();
     }
 }

@@ -5,18 +5,25 @@ using System;
 using System.Collections.Generic;
 using Xunit;
 
-namespace Microsoft.AspNetCore.Testing.Tests
+namespace Microsoft.AspNetCore.InternalTesting.Tests;
+
+public class QuarantinedTestAttributeTest
 {
-    public class QuarantinedTestAttributeTest
+    [Fact(Skip = "These tests are nice when you need them but annoying when on all the time.")]
+    [QuarantinedTest("No issue")]
+    public void AlwaysFlakyInCI()
     {
-        [Fact(Skip = "These tests are nice when you need them but annoying when on all the time.")]
-        [QuarantinedTest("No issue")]
-        public void AlwaysFlakyInCI()
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("HELIX")) || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("AGENT_OS")))
         {
-            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("HELIX")) || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("AGENT_OS")))
-            {
-                throw new Exception("Flaky!");
-            }
+            throw new Exception("Flaky!");
         }
+    }
+
+    [Fact]
+    [QuarantinedTest("No issue, used to verify retry is working")]
+    public void FlakyTestToEnsureRetryWorks()
+    {
+        // Fail 20% of the time
+        Assert.True(new Random().Next(100) <= 80);
     }
 }

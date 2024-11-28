@@ -4,7 +4,7 @@
     <TargetFramework>$(DefaultNetCoreTargetFramework)</TargetFramework>
     <SignAssembly>false</SignAssembly>
     <AssemblyName>Diagnostics.FunctionalTests</AssemblyName>
-    <TestDependsOnMssql>true</TestDependsOnMssql>
+    <TestDependsOnMssql>true</TestDependsOnMssql> 
   </PropertyGroup>
 
   <ItemGroup>

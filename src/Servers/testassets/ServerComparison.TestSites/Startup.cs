@@ -6,16 +6,23 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 
-namespace ServerComparison.TestSites
+namespace ServerComparison.TestSites;
+
+public class Startup
 {
-    public class Startup
+    public void Configure(IApplicationBuilder app, ILoggerFactory loggerFactory)
     {
-        public void Configure(IApplicationBuilder app, ILoggerFactory loggerFactory)
+        app.Map("/throwexception", subApp =>
         {
-            app.Run(ctx =>
+            subApp.Run(context =>
             {
-                return ctx.Response.WriteAsync("Hello World " + RuntimeInformation.ProcessArchitecture);
+                throw new ApplicationException("Application exception");
             });
-        }
+        });
+
+        app.Run(ctx =>
+        {
+            return ctx.Response.WriteAsync("Hello World " + RuntimeInformation.ProcessArchitecture);
+        });
     }
 }

@@ -2,26 +2,38 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Net.Http;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Testing;
-using Xunit;
+using Microsoft.AspNetCore.Builder;
+using System.Reflection;
+using Microsoft.AspNetCore.InternalTesting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Logging;
+using Xunit.Abstractions;
 
-namespace Microsoft.AspNetCore.Mvc.FunctionalTests
+namespace Microsoft.AspNetCore.Mvc.FunctionalTests;
+
+public class HtmlHelperOptionsTest : LoggedTest
 {
-    public class HtmlHelperOptionsTest : IClassFixture<MvcTestFixture<RazorWebSite.Startup>>
+    protected override void Initialize(TestContext context, MethodInfo methodInfo, object[] testMethodArguments, ITestOutputHelper testOutputHelper)
     {
-        public HtmlHelperOptionsTest(MvcTestFixture<RazorWebSite.Startup> fixture)
-        {
-            Client = fixture.CreateDefaultClient();
-        }
+        base.Initialize(context, methodInfo, testMethodArguments, testOutputHelper);
+        Factory = new MvcTestFixture<RazorWebSite.Startup>(LoggerFactory);
+        Client = Factory.CreateDefaultClient();
+    }
 
-        public HttpClient Client { get; }
+    public override void Dispose()
+    {
+        Factory.Dispose();
+        base.Dispose();
+    }
 
-        [Fact]
-        public async Task AppWideDefaultsInViewAndPartialView()
-        {
-            // Arrange
-            var expected =
+    public WebApplicationFactory<RazorWebSite.Startup> Factory { get; private set; }
+    public HttpClient Client { get; private set; }
+
+    [Fact]
+    public async Task AppWideDefaultsInViewAndPartialView()
+    {
+        // Arrange
+        var expected =
 @"<div class=""validation-summary-errors""><validationSummaryElement>MySummary</validationSummaryElement>
 <ul><li>A model error occurred.</li>
 </ul></div>
@@ -40,19 +52,19 @@ namespace Microsoft.AspNetCore.Mvc.FunctionalTests
 
 False";
 
-            // Act
-            var body = await Client.GetStringAsync("http://localhost/HtmlHelperOptions/HtmlHelperOptionsDefaultsInView");
+        // Act
+        var body = await Client.GetStringAsync("http://localhost/HtmlHelperOptions/HtmlHelperOptionsDefaultsInView");
 
-            // Assert
-            Assert.Equal(expected, body.Trim(), ignoreLineEndingDifferences: true);
-        }
+        // Assert
+        Assert.Equal(expected, body.Trim(), ignoreLineEndingDifferences: true);
+    }
 
-        [Fact]
-        [ReplaceCulture]
-        public async Task OverrideAppWideDefaultsInViewAndPartialView()
-        {
-            // Arrange
-            var expected =
+    [Fact]
+    [ReplaceCulture]
+    public async Task OverrideAppWideDefaultsInViewAndPartialView()
+    {
+        // Arrange
+        var expected =
 @"<div class=""validation-summary-errors""><ValidationSummaryInView>MySummary</ValidationSummaryInView>
 <ul><li>A model error occurred.</li>
 </ul></div>
@@ -72,11 +84,10 @@ True
 
 True";
 
-            // Act
-            var body = await Client.GetStringAsync("http://localhost/HtmlHelperOptions/OverrideAppWideDefaultsInView");
+        // Act
+        var body = await Client.GetStringAsync("http://localhost/HtmlHelperOptions/OverrideAppWideDefaultsInView");
 
-            // Assert
-            Assert.Equal(expected, body.Trim(), ignoreLineEndingDifferences: true);
-        }
+        // Assert
+        Assert.Equal(expected, body.Trim(), ignoreLineEndingDifferences: true);
     }
 }

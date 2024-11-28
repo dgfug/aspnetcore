@@ -2,15 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using Microsoft.AspNetCore.Testing;
+using Microsoft.AspNetCore.InternalTesting;
 
-namespace Microsoft.AspNetCore.Server.IIS.FunctionalTests
+namespace Microsoft.AspNetCore.Server.IIS.FunctionalTests;
+
+[AttributeUsage(AttributeTargets.Assembly | AttributeTargets.Class | AttributeTargets.Method)]
+public sealed class RequiresNewHandlerAttribute : Attribute, ITestCondition
 {
-    [AttributeUsage(AttributeTargets.Assembly | AttributeTargets.Class | AttributeTargets.Method)]
-    public sealed class RequiresNewHandlerAttribute : Attribute, ITestCondition
-    {
-        public bool IsMet => DeployerSelector.HasNewHandler;
+    public bool IsMet => DeployerSelector.HasNewHandler;
 
-        public string SkipReason => "Test verifies new behavior in the aspnetcorev2_inprocess.dll that isn't supported in earlier versions.";
-    }
+    public string SkipReason => "Test verifies new behavior in the aspnetcorev2_inprocess.dll that isn't supported in earlier versions.";
 }

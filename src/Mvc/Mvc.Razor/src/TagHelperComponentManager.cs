@@ -1,33 +1,27 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
-using System.Collections.Generic;
 using Microsoft.AspNetCore.Mvc.Razor.TagHelpers;
 using Microsoft.AspNetCore.Razor.TagHelpers;
 
-namespace Microsoft.AspNetCore.Mvc.Razor
+namespace Microsoft.AspNetCore.Mvc.Razor;
+
+/// <summary>
+/// The default implementation of the <see cref="ITagHelperComponentManager"/>.
+/// </summary>
+internal sealed class TagHelperComponentManager : ITagHelperComponentManager
 {
     /// <summary>
-    /// The default implementation of the <see cref="ITagHelperComponentManager"/>.
+    /// Creates a new <see cref="TagHelperComponentManager"/>.
     /// </summary>
-    internal class TagHelperComponentManager : ITagHelperComponentManager
+    /// <param name="tagHelperComponents">The collection of <see cref="ITagHelperComponent"/>s.</param>
+    public TagHelperComponentManager(IEnumerable<ITagHelperComponent> tagHelperComponents)
     {
-        /// <summary>
-        /// Creates a new <see cref="TagHelperComponentManager"/>.
-        /// </summary>
-        /// <param name="tagHelperComponents">The collection of <see cref="ITagHelperComponent"/>s.</param>
-        public TagHelperComponentManager(IEnumerable<ITagHelperComponent> tagHelperComponents)
-        {
-            if (tagHelperComponents == null)
-            {
-                throw new ArgumentNullException(nameof(tagHelperComponents));
-            }
+        ArgumentNullException.ThrowIfNull(tagHelperComponents);
 
-            Components = new List<ITagHelperComponent>(tagHelperComponents);
-        }
-
-        /// <inheritdoc />
-        public ICollection<ITagHelperComponent> Components { get; }
+        Components = new List<ITagHelperComponent>(tagHelperComponents);
     }
+
+    /// <inheritdoc />
+    public ICollection<ITagHelperComponent> Components { get; }
 }

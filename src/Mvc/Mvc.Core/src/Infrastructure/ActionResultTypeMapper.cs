@@ -3,44 +3,42 @@
 
 #nullable enable
 
-using System;
+using Microsoft.AspNetCore.Http;
 
-namespace Microsoft.AspNetCore.Mvc.Infrastructure
+namespace Microsoft.AspNetCore.Mvc.Infrastructure;
+
+internal sealed class ActionResultTypeMapper : IActionResultTypeMapper
 {
-    internal class ActionResultTypeMapper : IActionResultTypeMapper
+    public Type GetResultDataType(Type returnType)
     {
-        public Type GetResultDataType(Type returnType)
+        ArgumentNullException.ThrowIfNull(returnType);
+
+        if (returnType.IsGenericType &&
+            returnType.GetGenericTypeDefinition() == typeof(ActionResult<>))
         {
-            if (returnType == null)
-            {
-                throw new ArgumentNullException(nameof(returnType));
-            }
-
-            if (returnType.IsGenericType &&
-                returnType.GetGenericTypeDefinition() == typeof(ActionResult<>))
-            {
-                return returnType.GetGenericArguments()[0];
-            }
-
-            return returnType;
+            return returnType.GetGenericArguments()[0];
         }
 
-        public IActionResult Convert(object? value, Type returnType)
+        return returnType;
+    }
+
+    public IActionResult Convert(object? value, Type returnType)
+    {
+        ArgumentNullException.ThrowIfNull(returnType);
+
+        if (value is IConvertToActionResult converter)
         {
-            if (returnType == null)
-            {
-                throw new ArgumentNullException(nameof(returnType));
-            }
-
-            if (value is IConvertToActionResult converter)
-            {
-                return converter.Convert();
-            }
-
-            return new ObjectResult(value)
-            {
-                DeclaredType = returnType,
-            };
+            return converter.Convert();
         }
+
+        if (value is IResult httpResult)
+        {
+            return new HttpActionResult(httpResult);
+        }
+
+        return new ObjectResult(value)
+        {
+            DeclaredType = returnType,
+        };
     }
 }

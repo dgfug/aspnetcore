@@ -1,123 +1,128 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using PlaywrightSharp;
+using Microsoft.Playwright;
 
-namespace Microsoft.AspNetCore.BrowserTesting
+namespace Microsoft.AspNetCore.BrowserTesting;
+
+public class PageInformation : IDisposable
 {
-    public class PageInformation : IDisposable
+    private readonly IPage _page;
+    private readonly ILogger<PageInformation> _logger;
+
+    public List<string> FailedRequests { get; } = new();
+
+    public List<LogEntry> BrowserConsoleLogs { get; } = new();
+
+    public List<string> PageErrors { get; } = new();
+
+    public List<IWebSocket> WebSockets { get; set; } = new();
+
+    public PageInformation(IPage page, ILogger<PageInformation> logger)
     {
-        private readonly Page _page;
-        private readonly ILogger<PageInformation> _logger;
+        page.Console += RecordConsoleMessage;
+        page.PageError += RecordPageError;
+        page.RequestFailed += RecordFailedRequest;
+        page.WebSocket += CaptureWebSocket;
+        _page = page;
+        _logger = logger;
 
-        public List<string> FailedRequests { get; } = new();
+        _ = LogPageVideoPath();
+    }
 
-        public List<LogEntry> BrowserConsoleLogs { get; } = new();
+    private void CaptureWebSocket(object sender, IWebSocket e)
+    {
+        WebSockets.Add(e);
+    }
 
-        public List<string> PageErrors { get; } = new();
-
-        public List<IWebSocket> WebSockets { get; set; } = new();
-
-        public PageInformation(Page page, ILogger<PageInformation> logger)
+    private async Task LogPageVideoPath()
+    {
+        try
         {
-            page.Console += RecordConsoleMessage;
-            page.PageError += RecordPageError;
-            page.RequestFailed += RecordFailedRequest;
-            page.WebSocket += CaptureWebSocket;
-            _page = page;
-            _logger = logger;
-
-            _  = LogPageVideoPath();
-        }
-
-        private void CaptureWebSocket(object sender, WebSocketEventArgs e)
-        {
-            WebSockets.Add(e.WebSocket);
-        }
-
-        private async Task LogPageVideoPath()
-        {
-            try
+            var path = _page.Video != null ? await _page.Video.PathAsync() : null;
+            if (path != null)
             {
-                var path = _page.Video != null ? await _page.Video.GetPathAsync() : null;
-                if (path != null)
-                {
-                    _logger.LogInformation($"Page video recorded at: {path}");
-                }
-            }
-            catch
-            {
-                // Silently swallow since we don't have a good way to report it and its not critical.
-                throw;
+                _logger.LogInformation($"Page video recorded at: {path}");
             }
         }
-
-        public void Dispose()
+        catch
         {
-            _page.Console -= RecordConsoleMessage;
-            _page.PageError -= RecordPageError;
-            _page.RequestFailed -= RecordFailedRequest;
+            // Silently swallow since we don't have a good way to report it and its not critical.
+            throw;
+        }
+    }
+
+    public void Dispose()
+    {
+        _page.Console -= RecordConsoleMessage;
+        _page.PageError -= RecordPageError;
+        _page.RequestFailed -= RecordFailedRequest;
+    }
+
+    private void RecordFailedRequest(object sender, IRequest e)
+    {
+        try
+        {
+            _logger.LogError(e.Failure);
+        }
+        catch
+        {
+        }
+        FailedRequests.Add(e.Failure);
+    }
+
+    private void RecordPageError(object sender, string e)
+    {
+        // There needs to be a bit of experimentation with this, but message should be a good start.
+        try
+        {
+            _logger.LogError(e);
+        }
+        catch
+        {
         }
 
-        private void RecordFailedRequest(object sender, RequestFailedEventArgs e)
+        PageErrors.Add(e);
+    }
+
+    private void RecordConsoleMessage(object sender, IConsoleMessage message)
+    {
+        try
         {
-            try
-            {
-                _logger.LogError(e.FailureText);
-            }
-            catch
-            {
-            }
-            FailedRequests.Add(e.FailureText);
-        }
+            var messageText = message.Text.Replace(Environment.NewLine, $"{Environment.NewLine}      ");
+            var location = message.Location;
 
-        private void RecordPageError(object sender, PageErrorEventArgs e)
+            var logMessage = $"[{_page.Url}]{Environment.NewLine}      {messageText}{Environment.NewLine}      ({location})";
+
+            var logLevel = message.Type switch
+            {
+                "info" => LogLevel.Information,
+                "verbose" => LogLevel.Debug,
+                "warning" => LogLevel.Warning,
+                "error" => LogLevel.Error,
+                _ => LogLevel.Information
+            };
+            _logger.Log(logLevel, logMessage);
+
+            BrowserConsoleLogs.Add(new LogEntry(messageText, message.Type));
+        }
+        catch
         {
-            // There needs to be a bit of experimentation with this, but message should be a good start.
-            try
-            {
-                _logger.LogError(e.Message);
-            }
-            catch
-            {
-            }
-
-            PageErrors.Add(e.Message);
+            // Logging after the test is finished should not cause the test to fail
         }
+    }
 
-        private void RecordConsoleMessage(object sender, ConsoleEventArgs e)
+    public sealed class LogEntry
+    {
+        public string Message { get; }
+
+        public string Level { get; }
+
+        public LogEntry(string message, string level)
         {
-            try
-            {
-                var message = e.Message;
-                var messageText = message.Text.Replace(Environment.NewLine, $"{Environment.NewLine}      ");
-                var location = message.Location;
-
-                var logMessage = $"[{_page.Url}]{Environment.NewLine}      {messageText}{Environment.NewLine}      ({location.URL}:{location.LineNumber}:{location.ColumnNumber})";
-
-                _logger.Log(MapLogLevel(message.Type), logMessage);
-
-                BrowserConsoleLogs.Add(new LogEntry(messageText, message.Type));
-
-                LogLevel MapLogLevel(string messageType) => messageType switch
-                {
-                    "info" => LogLevel.Information,
-                    "verbose" => LogLevel.Debug,
-                    "warning" => LogLevel.Warning,
-                    "error" => LogLevel.Error,
-                    _ => LogLevel.Information
-                };
-            }
-            catch
-            {
-                // Logging after the test is finished should not cause the test to fail
-            }
+            Message = message;
+            Level = level;
         }
-
-        public record LogEntry(string Message, string Level);
     }
 }

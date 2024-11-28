@@ -1,66 +1,75 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Net;
 using System.Net.Http;
-using System.Threading.Tasks;
-using Xunit;
+using System.Reflection;
+using Microsoft.AspNetCore.InternalTesting;
+using Xunit.Abstractions;
 
-namespace Microsoft.AspNetCore.Mvc.FunctionalTests
+namespace Microsoft.AspNetCore.Mvc.FunctionalTests;
+
+public class RazorPagesWithEndpointRoutingTest : LoggedTest
 {
-    public class RazorPagesWithEndpointRoutingTest : IClassFixture<MvcTestFixture<RazorPagesWebSite.Startup>>
+    protected override void Initialize(TestContext context, MethodInfo methodInfo, object[] testMethodArguments, ITestOutputHelper testOutputHelper)
     {
-        public RazorPagesWithEndpointRoutingTest(MvcTestFixture<RazorPagesWebSite.Startup> fixture)
-        {
-            Client = fixture.CreateDefaultClient();
-        }
+        base.Initialize(context, methodInfo, testMethodArguments, testOutputHelper);
+        Factory = new MvcTestFixture<RazorPagesWebSite.Startup>(LoggerFactory);
+        Client = Factory.CreateDefaultClient();
+    }
 
-        public HttpClient Client { get; }
+    public override void Dispose()
+    {
+        Factory.Dispose();
+        base.Dispose();
+    }
 
-        [Fact]
-        public async Task Authorize_AppliedUsingConvention_Works()
-        {
-            // Act
-            var response = await Client.GetAsync("/Conventions/AuthFolder");
+    public MvcTestFixture<RazorPagesWebSite.Startup> Factory { get; private set; }
+    public HttpClient Client { get; private set; }
 
-            // Assert
-            await response.AssertStatusCodeAsync(HttpStatusCode.Redirect);
-            Assert.Equal("/Login?ReturnUrl=%2FConventions%2FAuthFolder", response.Headers.Location.PathAndQuery);
-        }
+    [Fact]
+    public async Task Authorize_AppliedUsingConvention_Works()
+    {
+        // Act
+        var response = await Client.GetAsync("/Conventions/AuthFolder");
 
-        [Fact]
-        public async Task Authorize_AppliedUsingConvention_CanByOverridenByAllowAnonymousAppliedToModel()
-        {
-            // Act
-            var response = await Client.GetAsync("/Conventions/AuthFolder/AnonymousViaModel");
+        // Assert
+        await response.AssertStatusCodeAsync(HttpStatusCode.Redirect);
+        Assert.Equal("/Login?ReturnUrl=%2FConventions%2FAuthFolder", response.Headers.Location.PathAndQuery);
+    }
 
-            // Assert
-            await response.AssertStatusCodeAsync(HttpStatusCode.OK);
+    [Fact]
+    public async Task Authorize_AppliedUsingConvention_CanByOverridenByAllowAnonymousAppliedToModel()
+    {
+        // Act
+        var response = await Client.GetAsync("/Conventions/AuthFolder/AnonymousViaModel");
 
-            var content = await response.Content.ReadAsStringAsync();
-            Assert.Equal("Hello from Anonymous", content.Trim());
-        }
+        // Assert
+        await response.AssertStatusCodeAsync(HttpStatusCode.OK);
 
-        [Fact]
-        public async Task Authorize_AppliedUsingAttributeOnModel_Works()
-        {
-            // Act
-            var response = await Client.GetAsync("/ModelWithAuthFilter");
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal("Hello from Anonymous", content.Trim());
+    }
 
-            // Assert
-            await response.AssertStatusCodeAsync(HttpStatusCode.Redirect);
-            Assert.Equal("/Login?ReturnUrl=%2FModelWithAuthFilter", response.Headers.Location.PathAndQuery);
-        }
+    [Fact]
+    public async Task Authorize_AppliedUsingAttributeOnModel_Works()
+    {
+        // Act
+        var response = await Client.GetAsync("/ModelWithAuthFilter");
 
-        [Fact]
-        public async Task Authorize_WithEndpointRouting_WorksForControllers()
-        {
-            // Act
-            var response = await Client.GetAsync("/AuthorizedAction/Index");
+        // Assert
+        await response.AssertStatusCodeAsync(HttpStatusCode.Redirect);
+        Assert.Equal("/Login?ReturnUrl=%2FModelWithAuthFilter", response.Headers.Location.PathAndQuery);
+    }
 
-            // Assert
-            await response.AssertStatusCodeAsync(HttpStatusCode.Redirect);
-            Assert.Equal("/Login?ReturnUrl=%2FAuthorizedAction%2FIndex", response.Headers.Location.PathAndQuery);
-        }
+    [Fact]
+    public async Task Authorize_WithEndpointRouting_WorksForControllers()
+    {
+        // Act
+        var response = await Client.GetAsync("/AuthorizedAction/Index");
+
+        // Assert
+        await response.AssertStatusCodeAsync(HttpStatusCode.Redirect);
+        Assert.Equal("/Login?ReturnUrl=%2FAuthorizedAction%2FIndex", response.Headers.Location.PathAndQuery);
     }
 }

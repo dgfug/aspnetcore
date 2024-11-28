@@ -1,100 +1,77 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
-using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc.Core;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 
-namespace Microsoft.AspNetCore.Mvc.Controllers
+namespace Microsoft.AspNetCore.Mvc.Controllers;
+
+/// <summary>
+/// <see cref="IControllerActivator"/> that uses type activation to create controllers.
+/// </summary>
+internal sealed class DefaultControllerActivator : IControllerActivator
 {
+    private readonly ITypeActivatorCache _typeActivatorCache;
+
     /// <summary>
-    /// <see cref="IControllerActivator"/> that uses type activation to create controllers.
+    /// Creates a new <see cref="DefaultControllerActivator"/>.
     /// </summary>
-    internal class DefaultControllerActivator : IControllerActivator
+    /// <param name="typeActivatorCache">The <see cref="ITypeActivatorCache"/>.</param>
+    public DefaultControllerActivator(ITypeActivatorCache typeActivatorCache)
     {
-        private readonly ITypeActivatorCache _typeActivatorCache;
+        ArgumentNullException.ThrowIfNull(typeActivatorCache);
 
-        /// <summary>
-        /// Creates a new <see cref="DefaultControllerActivator"/>.
-        /// </summary>
-        /// <param name="typeActivatorCache">The <see cref="ITypeActivatorCache"/>.</param>
-        public DefaultControllerActivator(ITypeActivatorCache typeActivatorCache)
+        _typeActivatorCache = typeActivatorCache;
+    }
+
+    /// <inheritdoc />
+    public object Create(ControllerContext controllerContext)
+    {
+        ArgumentNullException.ThrowIfNull(controllerContext);
+
+        if (controllerContext.ActionDescriptor == null)
         {
-            if (typeActivatorCache == null)
-            {
-                throw new ArgumentNullException(nameof(typeActivatorCache));
-            }
-
-            _typeActivatorCache = typeActivatorCache;
+            throw new ArgumentException(Resources.FormatPropertyOfTypeCannotBeNull(
+                nameof(ControllerContext.ActionDescriptor),
+                nameof(ControllerContext)));
         }
 
-        /// <inheritdoc />
-        public object Create(ControllerContext controllerContext)
+        var controllerTypeInfo = controllerContext.ActionDescriptor.ControllerTypeInfo;
+
+        if (controllerTypeInfo == null)
         {
-            if (controllerContext == null)
-            {
-                throw new ArgumentNullException(nameof(controllerContext));
-            }
-
-            if (controllerContext.ActionDescriptor == null)
-            {
-                throw new ArgumentException(Resources.FormatPropertyOfTypeCannotBeNull(
-                    nameof(ControllerContext.ActionDescriptor),
-                    nameof(ControllerContext)));
-            }
-
-            var controllerTypeInfo = controllerContext.ActionDescriptor.ControllerTypeInfo;
-
-            if (controllerTypeInfo == null)
-            {
-                throw new ArgumentException(Resources.FormatPropertyOfTypeCannotBeNull(
-                    nameof(controllerContext.ActionDescriptor.ControllerTypeInfo),
-                    nameof(ControllerContext.ActionDescriptor)));
-            }
-
-            var serviceProvider = controllerContext.HttpContext.RequestServices;
-            return _typeActivatorCache.CreateInstance<object>(serviceProvider, controllerTypeInfo.AsType());
+            throw new ArgumentException(Resources.FormatPropertyOfTypeCannotBeNull(
+                nameof(controllerContext.ActionDescriptor.ControllerTypeInfo),
+                nameof(ControllerContext.ActionDescriptor)));
         }
 
-        /// <inheritdoc />
-        public void Release(ControllerContext context, object controller)
+        var serviceProvider = controllerContext.HttpContext.RequestServices;
+        return _typeActivatorCache.CreateInstance<object>(serviceProvider, controllerTypeInfo.AsType());
+    }
+
+    /// <inheritdoc />
+    public void Release(ControllerContext context, object controller)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(controller);
+
+        if (controller is IDisposable disposable)
         {
-            if (context == null)
-            {
-                throw new ArgumentNullException(nameof(context));
-            }
+            disposable.Dispose();
+        }
+    }
 
-            if (controller == null)
-            {
-                throw new ArgumentNullException(nameof(controller));
-            }
+    public ValueTask ReleaseAsync(ControllerContext context, object controller)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(controller);
 
-            if (controller is IDisposable disposable)
-            {
-                disposable.Dispose();
-            }
+        if (controller is IAsyncDisposable asyncDisposable)
+        {
+            return asyncDisposable.DisposeAsync();
         }
 
-        public ValueTask ReleaseAsync(ControllerContext context, object controller)
-        {
-            if (context == null)
-            {
-                throw new ArgumentNullException(nameof(context));
-            }
-
-            if (controller == null)
-            {
-                throw new ArgumentNullException(nameof(controller));
-            }
-
-            if (controller is IAsyncDisposable asyncDisposable)
-            {
-                return asyncDisposable.DisposeAsync();
-            }
-
-            Release(context, controller);
-            return default;
-        }
+        Release(context, controller);
+        return default;
     }
 }

@@ -1,37 +1,44 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
-using System.Net;
 using System.Net.Http;
-using System.Threading.Tasks;
-using Xunit;
+using System.Reflection;
+using Microsoft.AspNetCore.InternalTesting;
+using Xunit.Abstractions;
 
-namespace Microsoft.AspNetCore.Mvc.FunctionalTests
+namespace Microsoft.AspNetCore.Mvc.FunctionalTests;
+
+public class SimpleTests : LoggedTest
 {
-    public class SimpleTests : IClassFixture<MvcTestFixture<SimpleWebSite.Startup>>
+    protected override void Initialize(TestContext context, MethodInfo methodInfo, object[] testMethodArguments, ITestOutputHelper testOutputHelper)
     {
-        public SimpleTests(MvcTestFixture<SimpleWebSite.Startup> fixture)
-        {
-            Client = fixture.CreateDefaultClient();
-        }
+        base.Initialize(context, methodInfo, testMethodArguments, testOutputHelper);
+        Factory = new MvcTestFixture<SimpleWebSite.Startup>(LoggerFactory);
+        Client = Factory.CreateDefaultClient();
+    }
 
-        public HttpClient Client { get; }
+    public override void Dispose()
+    {
+        Factory.Dispose();
+        base.Dispose();
+    }
 
-        [Fact]
-        public async Task JsonSerializeFormatted()
-        {
-            // Arrange
-            var expected = "{" + Environment.NewLine
-                 + "  \"first\": \"wall\"," + Environment.NewLine
-                 + "  \"second\": \"floor\"" + Environment.NewLine
-                 + "}";
+    public MvcTestFixture<SimpleWebSite.Startup> Factory { get; private set; }
+    public HttpClient Client { get; private set; }
 
-            // Act
-            var content = await Client.GetStringAsync("http://localhost/Home/Index");
+    [Fact]
+    public async Task JsonSerializeFormatted()
+    {
+        // Arrange
+        var expected = "{" + Environment.NewLine
+             + "  \"first\": \"wall\"," + Environment.NewLine
+             + "  \"second\": \"floor\"" + Environment.NewLine
+             + "}";
 
-            // Assert
-            Assert.Equal(expected, content);
-        }
+        // Act
+        var content = await Client.GetStringAsync("http://localhost/Home/Index");
+
+        // Assert
+        Assert.Equal(expected, content);
     }
 }

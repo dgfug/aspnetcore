@@ -8,21 +8,21 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http;
 using Xunit;
 
-namespace Microsoft.AspNetCore.Testing
+namespace Microsoft.AspNetCore.InternalTesting;
+
+public class HttpParsingData
 {
-    public class HttpParsingData
+    public static IEnumerable<string[]> RequestLineValidData
     {
-        public static IEnumerable<string[]> RequestLineValidData
+        get
         {
-            get
+            var methods = new[]
             {
-                var methods = new[]
-                {
                     "GET",
                     "CUSTOM",
                 };
-                var paths = new[]
-                {
+            var paths = new[]
+            {
                     Tuple.Create("/", "/"),
                     Tuple.Create("/abc", "/abc"),
                     Tuple.Create("/abc/de/f", "/abc/de/f"),
@@ -58,8 +58,8 @@ namespace Microsoft.AspNetCore.Testing
                     Tuple.Create("http://[::1]:8080/", "/"),
                     Tuple.Create("http://user@[::1]:8080/", "/"),
                 };
-                var queryStrings = new[]
-                {
+            var queryStrings = new[]
+            {
                     "",
                     "?",
                     "?arg1=val1",
@@ -73,31 +73,33 @@ namespace Microsoft.AspNetCore.Testing
                     "?%00",
                     "?arg=%00"
                 };
-                var httpVersions = new[]
-                {
+            var httpVersions = new[]
+            {
                     "HTTP/1.0",
-                    "HTTP/1.1"
+                    "HTTP/1.1",
+                    " HTTP/1.1",
+                    "   HTTP/1.1"
                 };
 
-                return from method in methods
-                       from path in paths
-                       from queryString in queryStrings
-                       from httpVersion in httpVersions
-                       select new[]
-                       {
+            return from method in methods
+                   from path in paths
+                   from queryString in queryStrings
+                   from httpVersion in httpVersions
+                   select new[]
+                   {
                            $"{method} {path.Item1}{queryString} {httpVersion}\r\n",
                            method,
                            $"{path.Item1}{queryString}",
                            $"{path.Item1}",
                            $"{path.Item2}",
                            queryString,
-                           httpVersion
+                           httpVersion.Trim()
                        };
-            }
         }
+    }
 
-        public static IEnumerable<string[]> RequestLineDotSegmentData => new[]
-        {
+    public static IEnumerable<string[]> RequestLineDotSegmentData => new[]
+    {
             new[] { "GET /a/../b HTTP/1.1\r\n", "/a/../b", "/b", "" },
             new[] { "GET /%61/../%62 HTTP/1.1\r\n", "/%61/../%62", "/b", "" },
             new[] { "GET /a/%2E%2E/b HTTP/1.1\r\n", "/a/%2E%2E/b", "/b", "" },
@@ -118,8 +120,8 @@ namespace Microsoft.AspNetCore.Testing
             new[] { "CONNECT www.example.com HTTP/1.1\r\n", "www.example.com", "", "" },
         };
 
-        public static IEnumerable<string> RequestLineIncompleteData => new[]
-        {
+    public static IEnumerable<string> RequestLineIncompleteData => new[]
+    {
             "G",
             "GE",
             "GET",
@@ -137,12 +139,12 @@ namespace Microsoft.AspNetCore.Testing
             "GET / HTTP/1.1\r",
         };
 
-        public static IEnumerable<string> RequestLineInvalidData
+    public static IEnumerable<string> RequestLineInvalidData
+    {
+        get
         {
-            get
+            return new[]
             {
-                return new[]
-                {
                     "G\r\n",
                     "GE\r\n",
                     "GET\r\n",
@@ -164,6 +166,12 @@ namespace Microsoft.AspNetCore.Testing
                     "GET / HTTP/1.1\n",
                     "GET / HTTP/1.0\rA\n",
                     "GET / HTTP/1.1\ra\n",
+                    "GET  / HTTP/1.1\r\n",
+                    "GET   / HTTP/1.1\r\n",
+                    "GET  /  HTTP/1.1\r\n",
+                    "GET   /   HTTP/1.1\r\n",
+                    "GET / HTTP/1.1 \r\n",
+                    "GET / HTTP/1.1  \r\n",
                     "GET / H\r\n",
                     "GET / HT\r\n",
                     "GET / HTT\r\n",
@@ -195,6 +203,12 @@ namespace Microsoft.AspNetCore.Testing
                     "CUSTOM / HTTP/1.1\n",
                     "CUSTOM / HTTP/1.0\rA\n",
                     "CUSTOM / HTTP/1.1\ra\n",
+                    "CUSTOM  / HTTP/1.1\r\n",
+                    "CUSTOM   / HTTP/1.1\r\n",
+                    "CUSTOM  /  HTTP/1.1\r\n",
+                    "CUSTOM   /   HTTP/1.1\r\n",
+                    "CUSTOM / HTTP/1.1 \r\n",
+                    "CUSTOM / HTTP/1.1  \r\n",
                     "CUSTOM / H\r\n",
                     "CUSTOM / HT\r\n",
                     "CUSTOM / HTT\r\n",
@@ -205,7 +219,15 @@ namespace Microsoft.AspNetCore.Testing
                     "CUSTOM / HTTP/1.1a\n",
                     "CUSTOM / HTTP/1.1a\r\n",
                     "CUSTOM / HTTP/1.1ab\r\n",
+                    "CUSTOM / H\n",
+                    "CUSTOM / HT\n",
+                    "CUSTOM / HTT\n",
+                    "CUSTOM / HTTP\n",
+                    "CUSTOM / HTTP/\n",
+                    "CUSTOM / HTTP/1\n",
+                    "CUSTOM / HTTP/1.\n",
                     "CUSTOM / hello\r\n",
+                    "CUSTOM / hello\n",
                     "CUSTOM ? HTTP/1.1\r\n",
                     "CUSTOM /a?b=cHTTP/1.1\r\n",
                     "CUSTOM /a%20bHTTP/1.1\r\n",
@@ -214,16 +236,31 @@ namespace Microsoft.AspNetCore.Testing
                     "CUSTOM %00 HTTP/1.1\r\n",
                     "CUSTOM /?d=Bad UrlToAccept HTTP/1.1\r\n",
                 }.Concat(MethodWithNonTokenCharData.Select(method => $"{method} / HTTP/1.0\r\n"));
-            }
         }
+    }
 
-        // Bad HTTP Methods (invalid according to RFC)
-        public static IEnumerable<string> MethodWithNonTokenCharData
+    // This list is valid in quirk mode
+    public static IEnumerable<string> RequestLineInvalidDataLineFeedTerminator
+    {
+        get
         {
-            get
+            return new[]
             {
-                return new[]
-                {
+                    "GET / HTTP/1.0\n",
+                    "GET / HTTP/1.1\n",
+                    "CUSTOM / HTTP/1.0\n",
+                    "CUSTOM / HTTP/1.1\n",
+                };
+        }
+    }
+
+    // Bad HTTP Methods (invalid according to RFC)
+    public static IEnumerable<string> MethodWithNonTokenCharData
+    {
+        get
+        {
+            return new[]
+            {
                     "(",
                     ")",
                     "<",
@@ -245,11 +282,11 @@ namespace Microsoft.AspNetCore.Testing
                     "post=",
                     "[0x00]"
                 }.Concat(MethodWithNullCharData);
-            }
         }
+    }
 
-        public static IEnumerable<string> MethodWithNullCharData => new[]
-        {
+    public static IEnumerable<string> MethodWithNullCharData => new[]
+    {
             // Bad HTTP Methods (invalid according to RFC)
             "\0",
             "\0GET",
@@ -257,8 +294,8 @@ namespace Microsoft.AspNetCore.Testing
             "GET\0",
         };
 
-        public static IEnumerable<string> TargetWithEncodedNullCharData => new[]
-        {
+    public static IEnumerable<string> TargetWithEncodedNullCharData => new[]
+    {
             "/%00",
             "/%00%00",
             "/%E8%00%84",
@@ -268,45 +305,45 @@ namespace Microsoft.AspNetCore.Testing
             "/%F3%85%82%00",
         };
 
-        public static TheoryData<string, string> TargetInvalidData
+    public static TheoryData<string, string> TargetInvalidData
+    {
+        get
         {
-            get
-            {
-                var data = new TheoryData<string, string>();
+            var data = new TheoryData<string, string>();
 
-                // Invalid absolute-form
-                data.Add("GET", "http://");
-                data.Add("GET", "http:/");
-                data.Add("GET", "https:/");
-                data.Add("GET", "http:///");
-                data.Add("GET", "https://");
-                data.Add("GET", "http:////");
-                data.Add("GET", "http://:80");
-                data.Add("GET", "http://:80/abc");
-                data.Add("GET", "http://user@");
-                data.Add("GET", "http://user@/abc");
-                data.Add("GET", "http://abc%20xyz/abc");
-                data.Add("GET", "http://%20/abc?query=%0A");
-                // Valid absolute-form but with unsupported schemes
-                data.Add("GET", "otherscheme://host/");
-                data.Add("GET", "ws://host/");
-                data.Add("GET", "wss://host/");
-                // Must only have one asterisk
-                data.Add("OPTIONS", "**");
-                // Relative form
-                data.Add("GET", "../../");
-                data.Add("GET", "..\\.");
+            // Invalid absolute-form
+            data.Add("GET", "http://");
+            data.Add("GET", "http:/");
+            data.Add("GET", "https:/");
+            data.Add("GET", "http:///");
+            data.Add("GET", "https://");
+            data.Add("GET", "http:////");
+            data.Add("GET", "http://:80");
+            data.Add("GET", "http://:80/abc");
+            data.Add("GET", "http://user@");
+            data.Add("GET", "http://user@/abc");
+            data.Add("GET", "http://abc%20xyz/abc");
+            data.Add("GET", "http://%20/abc?query=%0A");
+            // Valid absolute-form but with unsupported schemes
+            data.Add("GET", "otherscheme://host/");
+            data.Add("GET", "ws://host/");
+            data.Add("GET", "wss://host/");
+            // Must only have one asterisk
+            data.Add("OPTIONS", "**");
+            // Relative form
+            data.Add("GET", "../../");
+            data.Add("GET", "..\\.");
 
-                return data;
-            }
+            return data;
         }
+    }
 
-        public static TheoryData<string, int> MethodNotAllowedRequestLine
+    public static TheoryData<string, int> MethodNotAllowedRequestLine
+    {
+        get
         {
-            get
+            var methods = new[]
             {
-                var methods = new[]
-                {
                     "GET",
                     "PUT",
                     "DELETE",
@@ -319,43 +356,43 @@ namespace Microsoft.AspNetCore.Testing
                     "CUSTOM",
                 };
 
-                var data = new TheoryData<string, int>();
+            var data = new TheoryData<string, int>();
 
-                foreach (var method in methods.Except(new[] { "OPTIONS" }))
-                {
-                    data.Add($"{method} * HTTP/1.1\r\n", (int)HttpMethod.Options);
-                }
-
-                foreach (var method in methods.Except(new[] { "CONNECT" }))
-                {
-                    data.Add($"{method} www.example.com:80 HTTP/1.1\r\n", (int)HttpMethod.Connect);
-                }
-
-                return data;
-            }
-        }
-
-        public static IEnumerable<string> TargetWithNullCharData
-        {
-            get
+            foreach (var method in methods.Except(new[] { "OPTIONS" }))
             {
-                return new[]
-                {
+                data.Add($"{method} * HTTP/1.1\r\n", (int)HttpMethod.Options);
+            }
+
+            foreach (var method in methods.Except(new[] { "CONNECT" }))
+            {
+                data.Add($"{method} www.example.com:80 HTTP/1.1\r\n", (int)HttpMethod.Connect);
+            }
+
+            return data;
+        }
+    }
+
+    public static IEnumerable<string> TargetWithNullCharData
+    {
+        get
+        {
+            return new[]
+            {
                     "\0",
                     "/\0",
                     "/\0\0",
                     "/%C8\0",
                 }.Concat(QueryStringWithNullCharData);
-            }
         }
+    }
 
-        public static IEnumerable<string> QueryStringWithNullCharData => new[]
-        {
+    public static IEnumerable<string> QueryStringWithNullCharData => new[]
+    {
             "/?\0=a",
             "/?a=\0",
         };
 
-        public static TheoryData<string> UnrecognizedHttpVersionData => new TheoryData<string>
+    public static TheoryData<string> UnrecognizedHttpVersionData => new TheoryData<string>
         {
             "http/1.0",
             "http/1.1",
@@ -364,13 +401,19 @@ namespace Microsoft.AspNetCore.Testing
             "8charact",
         };
 
-        public static IEnumerable<object[]> RequestHeaderInvalidData => new[]
-        {
+    public static IEnumerable<object[]> RequestHeaderInvalidDataLineFeedTerminator => new[]
+    {
             // Missing CR
             new[] { "Header: value\n\r\n", CoreStrings.FormatBadRequest_InvalidRequestHeader_Detail(@"Header: value\x0A") },
             new[] { "Header-1: value1\nHeader-2: value2\r\n\r\n", CoreStrings.FormatBadRequest_InvalidRequestHeader_Detail(@"Header-1: value1\x0A") },
             new[] { "Header-1: value1\r\nHeader-2: value2\n\r\n", CoreStrings.FormatBadRequest_InvalidRequestHeader_Detail(@"Header-2: value2\x0A") },
 
+            // Empty header name
+            new[] { ":a\n", CoreStrings.FormatBadRequest_InvalidRequestHeader_Detail(@":a\x0A") },
+        };
+
+    public static IEnumerable<object[]> RequestHeaderInvalidData => new[]
+    {
             // Line folding
             new[] { "Header: line1\r\n line2\r\n\r\n", CoreStrings.FormatBadRequest_InvalidRequestHeader_Detail(@" line2\x0D\x0A") },
             new[] { "Header: line1\r\n\tline2\r\n\r\n", CoreStrings.FormatBadRequest_InvalidRequestHeader_Detail(@"\x09line2\x0D\x0A") },
@@ -404,7 +447,7 @@ namespace Microsoft.AspNetCore.Testing
             new[] { "Header-1 value1\r\n\r\n", CoreStrings.FormatBadRequest_InvalidRequestHeader_Detail(@"Header-1 value1\x0D\x0A") },
             new[] { "Header-1 value1\r\nHeader-2: value2\r\n\r\n", CoreStrings.FormatBadRequest_InvalidRequestHeader_Detail(@"Header-1 value1\x0D\x0A") },
             new[] { "Header-1: value1\r\nHeader-2 value2\r\n\r\n", CoreStrings.FormatBadRequest_InvalidRequestHeader_Detail(@"Header-2 value2\x0D\x0A") },
-            new[] { "\n", CoreStrings.FormatBadRequest_InvalidRequestHeader_Detail(@"\x0A") },
+            new[] { "HeaderValue1\r\n\r\n", CoreStrings.FormatBadRequest_InvalidRequestHeader_Detail(@"HeaderValue1\x0D\x0A") },
 
             // Starting with whitespace
             new[] { " Header: value\r\n\r\n", CoreStrings.FormatBadRequest_InvalidRequestHeader_Detail(@" Header: value\x0D\x0A") },
@@ -435,16 +478,18 @@ namespace Microsoft.AspNetCore.Testing
 
             // Headers not ending in CRLF line
             new[] { "Header-1: value1\r\nHeader-2: value2\r\n\r\r", CoreStrings.BadRequest_InvalidRequestHeadersNoCRLF },
-            new[] { "Header-1: value1\r\nHeader-2: value2\r\n\r ", CoreStrings.BadRequest_InvalidRequestHeadersNoCRLF  },
+            new[] { "Header-1: value1\r\nHeader-2: value2\r\n\r ", CoreStrings.BadRequest_InvalidRequestHeadersNoCRLF },
             new[] { "Header-1: value1\r\nHeader-2: value2\r\n\r \n", CoreStrings.BadRequest_InvalidRequestHeadersNoCRLF },
+            new[] { "Header-1: value1\r\nHeader-2\t: value2 \n", CoreStrings.FormatBadRequest_InvalidRequestHeader_Detail(@"Header-2\x09: value2 \x0A") },
 
             // Empty header name
             new[] { ": value\r\n\r\n", CoreStrings.FormatBadRequest_InvalidRequestHeader_Detail(@": value\x0D\x0A") },
+            new[] { ":a\r\n", CoreStrings.FormatBadRequest_InvalidRequestHeader_Detail(@":a\x0D\x0A") },
         };
 
-        public static TheoryData<string, string> HostHeaderData
-            => new TheoryData<string, string>
-                {
+    public static TheoryData<string, string> HostHeaderData
+        => new TheoryData<string, string>
+            {
                     { "OPTIONS *", "" },
                     { "GET /pub/WWW/", "" },
                     { "GET /pub/WWW/", "   " },
@@ -457,14 +502,14 @@ namespace Microsoft.AspNetCore.Testing
                     { "CONNECT asp.net:80", "asp.net:80" },
                     { "CONNECT asp.net:443", "asp.net:443" },
                     { "CONNECT user-images.githubusercontent.com:443", "user-images.githubusercontent.com:443" },
-                };
+            };
 
-        public static TheoryData<string, string> HostHeaderInvalidData
+    public static TheoryData<string, string> HostHeaderInvalidData
+    {
+        get
         {
-            get
-            {
-                // see https://tools.ietf.org/html/rfc7230#section-5.4
-                var invalidHostValues = new[] {
+            // see https://tools.ietf.org/html/rfc7230#section-5.4
+            var invalidHostValues = new[] {
                     "",
                     "   ",
                     "contoso.com:4000",
@@ -476,25 +521,24 @@ namespace Microsoft.AspNetCore.Testing
                     "http://contoso.com"
                 };
 
-                var data = new TheoryData<string, string>();
+            var data = new TheoryData<string, string>();
 
-                foreach (var host in invalidHostValues)
-                {
-                    // absolute form
-                    // expected: GET http://contoso.com/ => Host: contoso.com
-                    data.Add("GET http://contoso.com/", host);
+            foreach (var host in invalidHostValues)
+            {
+                // absolute form
+                // expected: GET http://contoso.com/ => Host: contoso.com
+                data.Add("GET http://contoso.com/", host);
 
-                    // authority-form
-                    // expected: CONNECT contoso.com => Host: contoso.com
-                    data.Add("CONNECT contoso.com", host);
-                }
-
-                // port mismatch when target contains port
-                data.Add("GET https://contoso.com:443/", "contoso.com:5000");
-                data.Add("CONNECT contoso.com:443", "contoso.com:5000");
-
-                return data;
+                // authority-form
+                // expected: CONNECT contoso.com => Host: contoso.com
+                data.Add("CONNECT contoso.com", host);
             }
+
+            // port mismatch when target contains port
+            data.Add("GET https://contoso.com:443/", "contoso.com:5000");
+            data.Add("CONNECT contoso.com:443", "contoso.com:5000");
+
+            return data;
         }
     }
 }

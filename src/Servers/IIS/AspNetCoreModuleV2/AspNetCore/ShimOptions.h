@@ -68,7 +68,7 @@ public:
     bool
     QueryShadowCopyEnabled() const noexcept
     {
-        return m_fexperimentalEnableShadowCopying;
+        return m_fEnableShadowCopying;
     }
 
     bool
@@ -83,6 +83,18 @@ public:
         return m_strShadowCopyingDirectory;
     }
 
+    bool
+    QueryDisallowRotationOnConfigChange() const noexcept
+    {
+        return m_fDisallowRotationOnConfigChange;
+    }
+
+    std::chrono::milliseconds
+    QueryShutdownDelay() const noexcept
+    {
+        return m_fShutdownDelay;
+    }
+
     ShimOptions(const ConfigurationSource &configurationSource);
 
 private:
@@ -94,7 +106,11 @@ private:
     bool                           m_fStdoutLogEnabled;
     bool                           m_fDisableStartupPage;
     bool                           m_fShowDetailedErrors;
-    bool                           m_fexperimentalEnableShadowCopying;
+    bool                           m_fEnableShadowCopying;
     bool                           m_fCleanShadowCopyDirectory;
+    bool                           m_fDisallowRotationOnConfigChange;
     std::wstring                   m_strShadowCopyingDirectory;
+    std::chrono::milliseconds      m_fShutdownDelay;
+
+    void SetShutdownDelay(const std::wstring& shutdownDelay);
 };

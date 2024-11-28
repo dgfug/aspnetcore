@@ -7,7 +7,7 @@
         <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." Schedule="afterInstallFinalize" />
         <Media Id="1" Cabinet="$(var.Cabinet)" CompressionLevel="high" EmbedCab="$(var.EmbedCab)" />
 
-        <WixVariable Id="WixUILicenseRtf" Value="$(var.files)\eula.rtf" />
+        <WixVariable Id="WixUILicenseRtf" Value="$(var.files)\eula.txt" />
         <UIRef Id="WixUI_Minimal" />
 
         <FeatureRef Id="FT_DepProvider" />
@@ -53,18 +53,19 @@
         </Feature>
 
         <ComponentGroup Id="CG_ProductInfo">
-            <ComponentRef Id="C_eula.rtf" />
+            <ComponentRef Id="C_eula.txt" />
             <ComponentRef Id="C_ProductVersion"/>
             <ComponentRef Id="C_ProductInstallDir"/>
             <?if $(var.Platform)=x64 ?>
             <ComponentRef Id="C_ProductVersion_NonNative" />
             <ComponentRef Id="C_ProductInstallDir_NonNative" />
             <?endif?>
+            <ComponentRef Id="C_ProductCentralVersion" />
         </ComponentGroup>
 
         <DirectoryRef Id="SharedFolder">
-            <Component Id="C_eula.rtf">
-                <File Name="eula.rtf" Source="$(var.files)\eula.rtf" />
+            <Component Id="C_eula.txt">
+                <File Name="eula.txt" Source="$(var.files)\eula.txt" />
             </Component>
 
             <?ifdef ProductVersionKey?>
@@ -72,6 +73,12 @@
             <?endif?>
 
             <?define ProductVersionKey=SOFTWARE\Microsoft\ASP.NET Core\Shared Framework\v$(var.MajorVersion).$(var.MinorVersion)\$(var.PackageVersion)?>
+
+            <?ifdef ProductVersionCentralKey?>
+            <?undef ProductVersionCentralKey?>
+            <?endif?>
+
+            <?define ProductVersionCentralKey=SOFTWARE\dotnet\Setup\InstalledVersions\$(var.Platform)\sharedfx\Microsoft.AspNetCore.App?>
 
             <Component Id="C_ProductVersion">
                 <?if $(var.Platform)=x64 ?>
@@ -110,5 +117,11 @@
             </Component>
             <?endif?>
         </DirectoryRef>
+
+        <Component Id="C_ProductCentralVersion" Directory="TARGETDIR" Win64="no">
+            <RegistryKey Key="$(var.ProductVersionCentralKey)" Root="HKLM">
+                <RegistryValue Action="write" Name="$(var.PackageVersion)" Type="integer" Value="1" KeyPath="yes"/>
+            </RegistryKey>
+        </Component>
     </Fragment>
 </Wix>

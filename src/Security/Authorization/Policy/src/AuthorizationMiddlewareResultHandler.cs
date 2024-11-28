@@ -1,19 +1,27 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 
-namespace Microsoft.AspNetCore.Authorization.Policy
+namespace Microsoft.AspNetCore.Authorization.Policy;
+
+/// <summary>
+/// Default implementation for <see cref="IAuthorizationMiddlewareResultHandler"/>.
+/// </summary>
+public class AuthorizationMiddlewareResultHandler : IAuthorizationMiddlewareResultHandler
 {
-    /// <summary>
-    /// Default implementation for <see cref="IAuthorizationMiddlewareResultHandler"/>.
-    /// </summary>
-    public class AuthorizationMiddlewareResultHandler : IAuthorizationMiddlewareResultHandler
+    /// <inheritdoc />
+    public Task HandleAsync(RequestDelegate next, HttpContext context, AuthorizationPolicy policy, PolicyAuthorizationResult authorizeResult)
     {
-        /// <inheritdoc />
-        public async Task HandleAsync(RequestDelegate next, HttpContext context, AuthorizationPolicy policy, PolicyAuthorizationResult authorizeResult)
+        if (authorizeResult.Succeeded)
+        {
+            return next(context);
+        }
+
+        return Handle();
+
+        async Task Handle()
         {
             if (authorizeResult.Challenged)
             {
@@ -28,8 +36,6 @@ namespace Microsoft.AspNetCore.Authorization.Policy
                 {
                     await context.ChallengeAsync();
                 }
-
-                return;
             }
             else if (authorizeResult.Forbidden)
             {
@@ -44,11 +50,7 @@ namespace Microsoft.AspNetCore.Authorization.Policy
                 {
                     await context.ForbidAsync();
                 }
-
-                return;
             }
-
-            await next(context);
         }
     }
 }

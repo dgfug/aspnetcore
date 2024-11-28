@@ -1,80 +1,88 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Threading.Tasks;
+using System.Reflection;
 using Microsoft.AspNetCore.Hosting;
-using Xunit;
+using Microsoft.AspNetCore.InternalTesting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Xunit.Abstractions;
 
-namespace Microsoft.AspNetCore.Mvc.FunctionalTests
+namespace Microsoft.AspNetCore.Mvc.FunctionalTests;
+
+public class AuthMiddlewareUsingRequireAuthTest : LoggedTest
 {
-    public class AuthMiddlewareUsingRequireAuthTest : IClassFixture<MvcTestFixture<SecurityWebSite.StartupWithRequireAuth>>
+    protected override void Initialize(TestContext context, MethodInfo methodInfo, object[] testMethodArguments, ITestOutputHelper testOutputHelper)
     {
-        public AuthMiddlewareUsingRequireAuthTest(MvcTestFixture<SecurityWebSite.StartupWithRequireAuth> fixture)
-        {
-            var factory = fixture.Factories.FirstOrDefault() ?? fixture.WithWebHostBuilder(ConfigureWebHostBuilder);
-            Client = factory.CreateDefaultClient();
-        }
+        base.Initialize(context, methodInfo, testMethodArguments, testOutputHelper);
+        Factory = new MvcTestFixture<SecurityWebSite.StartupWithRequireAuth>(LoggerFactory).WithWebHostBuilder(ConfigureWebHostBuilder);
+        Client = Factory.CreateDefaultClient();
+    }
 
-        private static void ConfigureWebHostBuilder(IWebHostBuilder builder) =>
-            builder.UseStartup<SecurityWebSite.StartupWithRequireAuth>();
+    public override void Dispose()
+    {
+        Factory.Dispose();
+        base.Dispose();
+    }
 
-        public HttpClient Client { get; }
+    private static void ConfigureWebHostBuilder(IWebHostBuilder builder) =>
+        builder.UseStartup<SecurityWebSite.StartupWithRequireAuth>();
 
-        [Fact]
-        public async Task RequireAuthConfiguredGlobally_AppliesToControllers()
-        {
-            // Arrange
-            var action = "Home/Index";
-            var response = await Client.GetAsync(action);
+    public WebApplicationFactory<SecurityWebSite.StartupWithRequireAuth> Factory { get; private set; }
+    public HttpClient Client { get; private set; }
 
-            await AssertAuthorizeResponse(response);
+    [Fact]
+    public async Task RequireAuthConfiguredGlobally_AppliesToControllers()
+    {
+        // Arrange
+        var action = "Home/Index";
+        var response = await Client.GetAsync(action);
 
-            // We should be able to login with ClaimA alone
-            var authCookie = await GetAuthCookieAsync("LoginClaimA");
+        await AssertAuthorizeResponse(response);
 
-            var request = new HttpRequestMessage(HttpMethod.Get, action);
-            request.Headers.Add("Cookie", authCookie);
+        // We should be able to login with ClaimA alone
+        var authCookie = await GetAuthCookieAsync("LoginClaimA");
 
-            response = await Client.SendAsync(request);
-            await response.AssertStatusCodeAsync(HttpStatusCode.OK);
-        }
+        var request = new HttpRequestMessage(HttpMethod.Get, action);
+        request.Headers.Add("Cookie", authCookie);
 
-        [Fact]
-        public async Task RequireAuthConfiguredGlobally_AppliesToRazorPages()
-        {
-            // Arrange
-            var action = "PagesHome";
-            var response = await Client.GetAsync(action);
+        response = await Client.SendAsync(request);
+        await response.AssertStatusCodeAsync(HttpStatusCode.OK);
+    }
 
-            await AssertAuthorizeResponse(response);
+    [Fact]
+    public async Task RequireAuthConfiguredGlobally_AppliesToRazorPages()
+    {
+        // Arrange
+        var action = "PagesHome";
+        var response = await Client.GetAsync(action);
 
-            // We should be able to login with ClaimA alone
-            var authCookie = await GetAuthCookieAsync("LoginClaimA");
+        await AssertAuthorizeResponse(response);
 
-            var request = new HttpRequestMessage(HttpMethod.Get, action);
-            request.Headers.Add("Cookie", authCookie);
+        // We should be able to login with ClaimA alone
+        var authCookie = await GetAuthCookieAsync("LoginClaimA");
 
-            response = await Client.SendAsync(request);
-            await response.AssertStatusCodeAsync(HttpStatusCode.OK);
-        }
+        var request = new HttpRequestMessage(HttpMethod.Get, action);
+        request.Headers.Add("Cookie", authCookie);
 
-        private async Task AssertAuthorizeResponse(HttpResponseMessage response)
-        {
-            await response.AssertStatusCodeAsync(HttpStatusCode.Redirect);
-            Assert.Equal("/Home/Login", response.Headers.Location.LocalPath);
-        }
+        response = await Client.SendAsync(request);
+        await response.AssertStatusCodeAsync(HttpStatusCode.OK);
+    }
 
-        private async Task<string> GetAuthCookieAsync(string action)
-        {
-            var response = await Client.PostAsync($"Login/{action}", null);
+    private async Task AssertAuthorizeResponse(HttpResponseMessage response)
+    {
+        await response.AssertStatusCodeAsync(HttpStatusCode.Redirect);
+        Assert.Equal("/Home/Login", response.Headers.Location.LocalPath);
+    }
 
-            await response.AssertStatusCodeAsync(HttpStatusCode.OK);
-            Assert.True(response.Headers.Contains("Set-Cookie"));
-            return response.Headers.GetValues("Set-Cookie").FirstOrDefault();
-        }
+    private async Task<string> GetAuthCookieAsync(string action)
+    {
+        var response = await Client.PostAsync($"Login/{action}", null);
+
+        await response.AssertStatusCodeAsync(HttpStatusCode.OK);
+        Assert.True(response.Headers.Contains("Set-Cookie"));
+        return response.Headers.GetValues("Set-Cookie").FirstOrDefault();
     }
 }
 

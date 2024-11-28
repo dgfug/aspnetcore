@@ -3,44 +3,39 @@
 
 #nullable enable
 
-using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders
+namespace Microsoft.AspNetCore.Mvc.ModelBinding.Binders;
+
+/// <summary>
+/// A <see cref="IModelBinderProvider"/> for types deriving from <see cref="Enum"/>.
+/// </summary>
+public class EnumTypeModelBinderProvider : IModelBinderProvider
 {
     /// <summary>
-    /// A <see cref="IModelBinderProvider"/> for types deriving from <see cref="Enum"/>.
+    /// Initializes a new instance of <see cref="EnumTypeModelBinderProvider"/>.
     /// </summary>
-    public class EnumTypeModelBinderProvider : IModelBinderProvider
+    /// <param name="options">The <see cref="MvcOptions"/>.</param>
+    /// <remarks>The <paramref name="options"/> parameter is currently ignored.</remarks>
+    public EnumTypeModelBinderProvider(MvcOptions options)
     {
-        /// <summary>
-        /// Initializes a new instance of <see cref="EnumTypeModelBinderProvider"/>.
-        /// </summary>
-        /// <param name="options">The <see cref="MvcOptions"/>.</param>
-        /// <remarks>The <paramref name="options"/> parameter is currently ignored.</remarks>
-        public EnumTypeModelBinderProvider(MvcOptions options)
+    }
+
+    /// <inheritdoc />
+    public IModelBinder? GetBinder(ModelBinderProviderContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (context.Metadata.IsEnum)
         {
+            var loggerFactory = context.Services.GetRequiredService<ILoggerFactory>();
+            return new EnumTypeModelBinder(
+                suppressBindingUndefinedValueToEnumType: true,
+                context.Metadata.UnderlyingOrModelType,
+                loggerFactory);
         }
 
-        /// <inheritdoc />
-        public IModelBinder? GetBinder(ModelBinderProviderContext context)
-        {
-            if (context == null)
-            {
-                throw new ArgumentNullException(nameof(context));
-            }
-
-            if (context.Metadata.IsEnum)
-            {
-                var loggerFactory = context.Services.GetRequiredService<ILoggerFactory>();
-                return new EnumTypeModelBinder(
-                    suppressBindingUndefinedValueToEnumType: true,
-                    context.Metadata.UnderlyingOrModelType,
-                    loggerFactory);
-            }
-
-            return null;
-        }
+        return null;
     }
 }

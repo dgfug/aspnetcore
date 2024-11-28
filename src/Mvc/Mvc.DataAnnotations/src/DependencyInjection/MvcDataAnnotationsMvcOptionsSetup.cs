@@ -1,66 +1,54 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.DataAnnotations;
 using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Options;
 
-namespace Microsoft.Extensions.DependencyInjection
+namespace Microsoft.Extensions.DependencyInjection;
+
+/// <summary>
+/// Sets up default options for <see cref="MvcOptions"/>.
+/// </summary>
+internal sealed class MvcDataAnnotationsMvcOptionsSetup : IConfigureOptions<MvcOptions>
 {
-    /// <summary>
-    /// Sets up default options for <see cref="MvcOptions"/>.
-    /// </summary>
-    internal class MvcDataAnnotationsMvcOptionsSetup : IConfigureOptions<MvcOptions>
+    private readonly IStringLocalizerFactory? _stringLocalizerFactory;
+    private readonly IValidationAttributeAdapterProvider _validationAttributeAdapterProvider;
+    private readonly IOptions<MvcDataAnnotationsLocalizationOptions> _dataAnnotationLocalizationOptions;
+
+    public MvcDataAnnotationsMvcOptionsSetup(
+        IValidationAttributeAdapterProvider validationAttributeAdapterProvider,
+        IOptions<MvcDataAnnotationsLocalizationOptions> dataAnnotationLocalizationOptions)
     {
-        private readonly IStringLocalizerFactory? _stringLocalizerFactory;
-        private readonly IValidationAttributeAdapterProvider _validationAttributeAdapterProvider;
-        private readonly IOptions<MvcDataAnnotationsLocalizationOptions> _dataAnnotationLocalizationOptions;
+        ArgumentNullException.ThrowIfNull(validationAttributeAdapterProvider);
+        ArgumentNullException.ThrowIfNull(dataAnnotationLocalizationOptions);
 
-        public MvcDataAnnotationsMvcOptionsSetup(
-            IValidationAttributeAdapterProvider validationAttributeAdapterProvider,
-            IOptions<MvcDataAnnotationsLocalizationOptions> dataAnnotationLocalizationOptions)
-        {
-            if (validationAttributeAdapterProvider == null)
-            {
-                throw new ArgumentNullException(nameof(validationAttributeAdapterProvider));
-            }
+        _validationAttributeAdapterProvider = validationAttributeAdapterProvider;
+        _dataAnnotationLocalizationOptions = dataAnnotationLocalizationOptions;
+    }
 
-            if (dataAnnotationLocalizationOptions == null)
-            {
-                throw new ArgumentNullException(nameof(dataAnnotationLocalizationOptions));
-            }
+    public MvcDataAnnotationsMvcOptionsSetup(
+        IValidationAttributeAdapterProvider validationAttributeAdapterProvider,
+        IOptions<MvcDataAnnotationsLocalizationOptions> dataAnnotationLocalizationOptions,
+        IStringLocalizerFactory stringLocalizerFactory)
+        : this(validationAttributeAdapterProvider, dataAnnotationLocalizationOptions)
+    {
+        _stringLocalizerFactory = stringLocalizerFactory;
+    }
 
-            _validationAttributeAdapterProvider = validationAttributeAdapterProvider;
-            _dataAnnotationLocalizationOptions = dataAnnotationLocalizationOptions;
-        }
+    public void Configure(MvcOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
 
-        public MvcDataAnnotationsMvcOptionsSetup(
-            IValidationAttributeAdapterProvider validationAttributeAdapterProvider,
-            IOptions<MvcDataAnnotationsLocalizationOptions> dataAnnotationLocalizationOptions,
-            IStringLocalizerFactory stringLocalizerFactory)
-            : this(validationAttributeAdapterProvider, dataAnnotationLocalizationOptions)
-        {
-            _stringLocalizerFactory = stringLocalizerFactory;
-        }
+        options.ModelMetadataDetailsProviders.Add(new DataAnnotationsMetadataProvider(
+            options,
+            _dataAnnotationLocalizationOptions,
+            _stringLocalizerFactory));
 
-        public void Configure(MvcOptions options)
-        {
-            if (options == null)
-            {
-                throw new ArgumentNullException(nameof(options));
-            }
-
-            options.ModelMetadataDetailsProviders.Add(new DataAnnotationsMetadataProvider(
-                options,
-                _dataAnnotationLocalizationOptions,
-                _stringLocalizerFactory));
-
-            options.ModelValidatorProviders.Add(new DataAnnotationsModelValidatorProvider(
-                _validationAttributeAdapterProvider,
-                _dataAnnotationLocalizationOptions,
-                _stringLocalizerFactory));
-        }
+        options.ModelValidatorProviders.Add(new DataAnnotationsModelValidatorProvider(
+            _validationAttributeAdapterProvider,
+            _dataAnnotationLocalizationOptions,
+            _stringLocalizerFactory));
     }
 }

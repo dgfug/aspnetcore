@@ -1,55 +1,63 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Linq;
 using System.Net.Http;
-using System.Threading.Tasks;
+using System.Reflection;
 using Microsoft.AspNetCore.Hosting;
-using Xunit;
+using Microsoft.AspNetCore.InternalTesting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Xunit.Abstractions;
 
-namespace Microsoft.AspNetCore.Mvc.FunctionalTests
+namespace Microsoft.AspNetCore.Mvc.FunctionalTests;
+
+public class RazorPagesNamespaceTest : LoggedTest
 {
-    public class RazorPagesNamespaceTest : IClassFixture<MvcTestFixture<RazorPagesWebSite.StartupWithoutEndpointRouting>>
+    private static void ConfigureWebHostBuilder(IWebHostBuilder builder) =>
+        builder.UseStartup<RazorPagesWebSite.StartupWithoutEndpointRouting>();
+
+    protected override void Initialize(TestContext context, MethodInfo methodInfo, object[] testMethodArguments, ITestOutputHelper testOutputHelper)
     {
-        public RazorPagesNamespaceTest(MvcTestFixture<RazorPagesWebSite.StartupWithoutEndpointRouting> fixture)
-        {
-            var factory = fixture.Factories.FirstOrDefault() ?? fixture.WithWebHostBuilder(ConfigureWebHostBuilder);
-            Client = factory.CreateDefaultClient();
-        }
+        base.Initialize(context, methodInfo, testMethodArguments, testOutputHelper);
+        Factory = new MvcTestFixture<RazorPagesWebSite.StartupWithoutEndpointRouting>(LoggerFactory).WithWebHostBuilder(ConfigureWebHostBuilder);
+        Client = Factory.CreateDefaultClient();
+    }
 
-        private static void ConfigureWebHostBuilder(IWebHostBuilder builder) =>
-            builder.UseStartup<RazorPagesWebSite.StartupWithoutEndpointRouting>();
+    public override void Dispose()
+    {
+        Factory.Dispose();
+        base.Dispose();
+    }
 
-        public HttpClient Client { get; }
+    public WebApplicationFactory<RazorPagesWebSite.StartupWithoutEndpointRouting> Factory { get; private set; }
+    public HttpClient Client { get; private set; }
 
-        [Fact]
-        public async Task Page_DefaultNamespace_IfUnset()
-        {
-            // Arrange & Act
-            var content = await Client.GetStringAsync("http://localhost/DefaultNamespace");
+    [Fact]
+    public async Task Page_DefaultNamespace_IfUnset()
+    {
+        // Arrange & Act
+        var content = await Client.GetStringAsync("http://localhost/DefaultNamespace");
 
-            // Assert
-            Assert.Equal("AspNetCoreGeneratedDocument", content.Trim());
-        }
+        // Assert
+        Assert.Equal("AspNetCoreGeneratedDocument", content.Trim());
+    }
 
-        [Fact]
-        public async Task Page_ImportedNamespace_UsedFromViewImports()
-        {
-            // Arrange & Act
-            var content = await Client.GetStringAsync("http://localhost/Pages/Namespace/Nested/Folder");
+    [Fact]
+    public async Task Page_ImportedNamespace_UsedFromViewImports()
+    {
+        // Arrange & Act
+        var content = await Client.GetStringAsync("http://localhost/Pages/Namespace/Nested/Folder");
 
-            // Assert
-            Assert.Equal("CustomNamespace.Nested.Folder", content.Trim());
-        }
+        // Assert
+        Assert.Equal("CustomNamespace.Nested.Folder", content.Trim());
+    }
 
-        [Fact]
-        public async Task Page_OverrideNamespace_SetByPage()
-        {
-            // Arrange & Act
-            var content = await Client.GetStringAsync("http://localhost/Pages/Namespace/Nested/Override");
+    [Fact]
+    public async Task Page_OverrideNamespace_SetByPage()
+    {
+        // Arrange & Act
+        var content = await Client.GetStringAsync("http://localhost/Pages/Namespace/Nested/Override");
 
-            // Assert
-            Assert.Equal("Override", content.Trim());
-        }
+        // Assert
+        Assert.Equal("Override", content.Trim());
     }
 }
